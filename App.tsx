@@ -29,6 +29,7 @@ type MobileView = 'editor' | 'preview';
 function App() {
   const [prompt, setPrompt] = useState('一只猫正在为它的动物朋友们举办派对');
   const [aspectRatio, setAspectRatio] = useState('1:1');
+  const [resolution, setResolution] = useState<'720p' | '1080p'>('720p');
   const [referenceImage, setReferenceImage] = useState<string | null>(null);
   
   const [isGraphLoading, setIsGraphLoading] = useState(false);
@@ -288,7 +289,7 @@ function App() {
                     if (isGenCurrent()) setStory(generatedStory);
                 } else if (requestMode === 'video') {
                     // We now rely on generateVideosFromPrompt to check for the key and throw an error if needed.
-                    const generatedVideo = await generateVideosFromPrompt(currentPrompt, aspectRatio, safeGenStatusUpdate);
+                    const generatedVideo = await generateVideosFromPrompt(currentPrompt, aspectRatio, resolution, safeGenStatusUpdate);
                     if (isGenCurrent()) setVideo(generatedVideo);
                 }
             } catch (error: any) {
@@ -316,7 +317,7 @@ function App() {
         if (isGenCurrent() && !isGenerating) setStatusNotification(null);
     });
 
-  }, [refreshAnalysis, handleStatusUpdate, aspectRatio, referenceImage]);
+  }, [refreshAnalysis, handleStatusUpdate, aspectRatio, resolution, referenceImage]);
 
   const handlePromptSubmit = useCallback(() => {
     setHasGenerated(true);
@@ -472,6 +473,8 @@ function App() {
                         setPrompt={setPrompt}
                         aspectRatio={aspectRatio}
                         setAspectRatio={setAspectRatio}
+                        resolution={resolution}
+                        setResolution={setResolution}
                         onSubmit={handlePromptSubmit}
                         onAnalyze={handleAnalyzeOnly}
                         isLoading={isGenerating}

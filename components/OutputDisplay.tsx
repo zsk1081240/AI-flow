@@ -53,17 +53,20 @@ const OutputDisplay: React.FC<OutputDisplayProps> = ({
 
   const placeholderCount = 4;
 
-  const downloadStory = () => {
-    if (!story) return;
-    const fileName = "generated_story.txt";
+  const downloadFile = (url: string, filename: string) => {
     const element = document.createElement("a");
-    const file = new Blob([story], {type: 'text/plain'});
-    const url = URL.createObjectURL(file);
     element.href = url;
-    element.download = fileName;
+    element.download = filename;
     document.body.appendChild(element);
     element.click();
     document.body.removeChild(element);
+  };
+
+  const downloadStory = () => {
+    if (!story) return;
+    const file = new Blob([story], {type: 'text/plain'});
+    const url = URL.createObjectURL(file);
+    downloadFile(url, "generated_story.txt");
     setTimeout(() => URL.revokeObjectURL(url), 100);
   };
 
@@ -291,6 +294,18 @@ const OutputDisplay: React.FC<OutputDisplayProps> = ({
                           >
                               <img src={img} alt="" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
                               <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors"></div>
+                              <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    downloadFile(img, `generated-image-${item.id}-${i + 1}.png`);
+                                }}
+                                className="absolute bottom-2 right-2 p-1.5 bg-black/50 hover:bg-black/70 text-white rounded-md opacity-0 group-hover:opacity-100 transition-opacity backdrop-blur-sm shadow-sm"
+                                title="保存图片"
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                </svg>
+                              </button>
                           </div>
                       ))}
                   </div>
@@ -443,16 +458,15 @@ const OutputDisplay: React.FC<OutputDisplayProps> = ({
                             className="max-w-full max-h-[70vh] md:max-h-[85vh] object-contain rounded-lg shadow-2xl pointer-events-auto" 
                         />
                         <div className="mt-4 flex gap-4 pointer-events-auto flex-shrink-0">
-                            <a 
-                                href={selectedImage} 
-                                download="generated-image.jpg"
+                            <button
+                                onClick={() => downloadFile(selectedImage, "generated-image.jpg")}
                                 className="bg-white text-gray-900 px-6 py-2 rounded-full font-semibold hover:bg-gray-100 transition-colors flex items-center gap-2 shadow-lg"
                             >
                                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                                 </svg>
                                 下载图片
-                            </a>
+                            </button>
                         </div>
                     </div>
                 </div>

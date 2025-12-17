@@ -492,8 +492,8 @@ export const generateImagesFromPrompt = async (prompt: string, aspectRatio: stri
     return images;
 };
 
-export const generateVideosFromPrompt = async (prompt: string, aspectRatio: string, onStatusUpdate?: StatusUpdateCallback): Promise<string> => {
-    console.log("Generating video for prompt:", prompt, "Ratio:", aspectRatio);
+export const generateVideosFromPrompt = async (prompt: string, aspectRatio: string, resolution: '720p' | '1080p', onStatusUpdate?: StatusUpdateCallback): Promise<string> => {
+    console.log("Generating video for prompt:", prompt, "Ratio:", aspectRatio, "Resolution:", resolution);
     
     // Validate ratio for video. Veo usually supports 16:9 or 9:16.
     let targetRatio = aspectRatio;
@@ -522,7 +522,7 @@ export const generateVideosFromPrompt = async (prompt: string, aspectRatio: stri
             prompt: prompt,
             config: {
                 numberOfVideos: 1,
-                resolution: '720p',
+                resolution: resolution,
                 aspectRatio: targetRatio
             }
         });
