@@ -16,7 +16,7 @@ interface OutputDisplayProps {
   imageHistory: ImageGenerationItem[];
   story: string | null;
   video: string | null;
-  mode: 'image' | 'story' | 'video';
+  mode: 'image' | 'story' | 'video' | 'image-to-image';
   isLoading: boolean;
   error: string | null;
   isOutdated: boolean;
@@ -53,17 +53,20 @@ const OutputDisplay: React.FC<OutputDisplayProps> = ({
 
   const placeholderCount = 4;
 
-  const downloadStory = () => {
-    if (!story) return;
-    const fileName = "generated_story.txt";
+  const downloadFile = (url: string, filename: string) => {
     const element = document.createElement("a");
-    const file = new Blob([story], {type: 'text/plain'});
-    const url = URL.createObjectURL(file);
     element.href = url;
-    element.download = fileName;
+    element.download = filename;
     document.body.appendChild(element);
     element.click();
     document.body.removeChild(element);
+  };
+
+  const downloadStory = () => {
+    if (!story) return;
+    const file = new Blob([story], {type: 'text/plain'});
+    const url = URL.createObjectURL(file);
+    downloadFile(url, "generated_story.txt");
     setTimeout(() => URL.revokeObjectURL(url), 100);
   };
 
@@ -74,7 +77,7 @@ const OutputDisplay: React.FC<OutputDisplayProps> = ({
 
   // --- Canvas Interaction Logic (Copied/Adapted from BeliefGraph) ---
   const handlePointerDown = (e: React.PointerEvent) => {
-    if (mode !== 'image') return;
+    if (mode !== 'image' && mode !== 'image-to-image') return;
     canvasRef.current?.setPointerCapture(e.pointerId);
     e.preventDefault(); 
     activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -86,7 +89,7 @@ const OutputDisplay: React.FC<OutputDisplayProps> = ({
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
-    if (mode !== 'image' || !activePointersRef.current.has(e.pointerId)) return;
+    if ((mode !== 'image' && mode !== 'image-to-image') || !activePointersRef.current.has(e.pointerId)) return;
     e.preventDefault(); 
     activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     const pointers: {x: number, y: number}[] = Array.from(activePointersRef.current.values());
@@ -107,7 +110,7 @@ const OutputDisplay: React.FC<OutputDisplayProps> = ({
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
-      if (mode !== 'image') return;
+      if (mode !== 'image' && mode !== 'image-to-image') return;
       canvasRef.current?.releasePointerCapture(e.pointerId);
       activePointersRef.current.delete(e.pointerId);
       if (activePointersRef.current.size < 2) prevPinchDistRef.current = null;
@@ -119,7 +122,7 @@ const OutputDisplay: React.FC<OutputDisplayProps> = ({
   };
 
   const handleWheel = (e: React.WheelEvent) => {
-      if (mode !== 'image') return;
+      if (mode !== 'image' && mode !== 'image-to-image') return;
       e.preventDefault(); 
       const delta = -e.deltaY * 0.001;
       setViewTransform(prev => ({ ...prev, k: Math.min(4, Math.max(0.1, prev.k * Math.exp(delta))) }));
@@ -241,8 +244,8 @@ const OutputDisplay: React.FC<OutputDisplayProps> = ({
       );
   }
 
-  // --- Mode: Image (Infinite Canvas) ---
-  if (mode === 'image') {
+  // --- Mode: Image & Image-to-Image (Infinite Canvas) ---
+  if (mode === 'image' || mode === 'image-to-image') {
       const renderHistoryItem = (item: ImageGenerationItem, index: number) => {
           // Calculate Y position based on index (stacking them vertically)
           // Assume each block takes roughly 650px (including gap)
@@ -256,15 +259,25 @@ const OutputDisplay: React.FC<OutputDisplayProps> = ({
                 onPointerDown={(e) => e.stopPropagation()} // Prevent pan start when clicking card
               >
                   <div className="flex justify-between items-start mb-3 border-b border-gray-100 dark:border-gray-700 pb-2">
-                      <div>
-                          <span className="text-xs font-mono text-gray-400 dark:text-gray-500 block mb-1">
-                              {new Date(item.timestamp).toLocaleTimeString()} · Ratio {item.aspectRatio}
-                          </span>
-                          <p className="text-sm font-medium text-gray-800 dark:text-gray-200 line-clamp-2" title={item.prompt}>
-                              {item.prompt}
-                          </p>
+                      <div className="flex gap-3">
+                         {item.referenceImage && (
+                             <div className="flex-shrink-0 w-12 h-12 rounded border border-gray-300 dark:border-gray-600 overflow-hidden relative group" title="参考图片">
+                                 <img src={item.referenceImage} alt="Ref" className="w-full h-full object-cover" />
+                                 <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 flex items-center justify-center transition-colors">
+                                     <span className="text-[8px] font-bold text-white bg-black/50 px-1 rounded opacity-0 group-hover:opacity-100">REF</span>
+                                 </div>
+                             </div>
+                         )}
+                          <div>
+                              <span className="text-xs font-mono text-gray-400 dark:text-gray-500 block mb-1">
+                                  {new Date(item.timestamp).toLocaleTimeString()} · Ratio {item.aspectRatio}
+                              </span>
+                              <p className="text-sm font-medium text-gray-800 dark:text-gray-200 line-clamp-2" title={item.prompt}>
+                                  {item.prompt}
+                              </p>
+                          </div>
                       </div>
-                      <span className="bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-100 text-[10px] font-bold px-2 py-1 rounded-full flex-shrink-0">
+                      <span className="bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-100 text-[10px] font-bold px-2 py-1 rounded-full flex-shrink-0 self-start">
                           #{imageHistory.length - index}
                       </span>
                   </div>
@@ -281,6 +294,18 @@ const OutputDisplay: React.FC<OutputDisplayProps> = ({
                           >
                               <img src={img} alt="" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
                               <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors"></div>
+                              <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    downloadFile(img, `generated-image-${item.id}-${i + 1}.png`);
+                                }}
+                                className="absolute bottom-2 right-2 p-1.5 bg-black/50 hover:bg-black/70 text-white rounded-md opacity-0 group-hover:opacity-100 transition-opacity backdrop-blur-sm shadow-sm"
+                                title="保存图片"
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                </svg>
+                              </button>
                           </div>
                       ))}
                   </div>
@@ -392,8 +417,9 @@ const OutputDisplay: React.FC<OutputDisplayProps> = ({
                             }}
                             className="w-full text-left p-3 border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors group flex gap-3 items-start"
                         >
-                            <div className="w-12 h-12 bg-gray-200 dark:bg-gray-700 rounded-md overflow-hidden flex-shrink-0">
+                            <div className="w-12 h-12 bg-gray-200 dark:bg-gray-700 rounded-md overflow-hidden flex-shrink-0 relative">
                                 {item.images[0] && <img src={item.images[0]} className="w-full h-full object-cover" alt="" />}
+                                {item.referenceImage && <div className="absolute bottom-0 right-0 w-4 h-4 bg-blue-500 rounded-tl-sm border-white border"></div>}
                             </div>
                             <div className="flex-1 min-w-0">
                                 <p className="text-xs text-gray-800 dark:text-gray-200 font-medium truncate mb-0.5">
@@ -401,6 +427,7 @@ const OutputDisplay: React.FC<OutputDisplayProps> = ({
                                 </p>
                                 <p className="text-[10px] text-gray-400">
                                     {new Date(item.timestamp).toLocaleTimeString()}
+                                    {item.referenceImage && " (图生图)"}
                                 </p>
                             </div>
                         </button>
@@ -431,16 +458,15 @@ const OutputDisplay: React.FC<OutputDisplayProps> = ({
                             className="max-w-full max-h-[70vh] md:max-h-[85vh] object-contain rounded-lg shadow-2xl pointer-events-auto" 
                         />
                         <div className="mt-4 flex gap-4 pointer-events-auto flex-shrink-0">
-                            <a 
-                                href={selectedImage} 
-                                download="generated-image.jpg"
+                            <button
+                                onClick={() => downloadFile(selectedImage, "generated-image.jpg")}
                                 className="bg-white text-gray-900 px-6 py-2 rounded-full font-semibold hover:bg-gray-100 transition-colors flex items-center gap-2 shadow-lg"
                             >
                                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                                 </svg>
                                 下载图片
-                            </a>
+                            </button>
                         </div>
                     </div>
                 </div>

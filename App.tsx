@@ -9,6 +9,7 @@ import PromptInput from './components/PromptInput';
 import ClarificationCard from './components/ClarificationCard';
 import BeliefGraph from './components/BeliefGraph';
 import OutputDisplay from './components/OutputGallery';
+import { TemplateSidebar } from './components/TemplateSidebar';
 import {
   parsePromptToBeliefGraph,
   generateClarifications,
@@ -459,128 +460,133 @@ function App() {
             </div>
         )}
 
-        {/* Removed pb-14 from main on mobile to allow background to extend fully. Added pb to inner containers. */}
-        <main className="flex-1 flex flex-col w-full max-w-screen-2xl mx-auto xl:p-6 xl:pt-4 xl:pb-6 overflow-hidden min-h-0">
-            <div className="flex-1 flex flex-col xl:grid xl:grid-cols-2 xl:gap-6 min-h-0">
-            
-            {/* Left Column (Editor) */}
-            <div className={`flex flex-col gap-0 bg-white dark:bg-gray-800 xl:rounded-lg xl:border border-gray-200 dark:border-gray-700 shadow-sm transition-colors duration-200 ${mobileView === 'editor' ? 'flex flex-1' : 'hidden xl:flex'} h-full overflow-y-auto`}>
+        <div className="flex-1 flex overflow-hidden relative">
+            {/* New Left Sidebar for Templates */}
+            <TemplateSidebar onApply={setPrompt} />
+
+            {/* Main Content Area */}
+            <main className="flex-1 flex flex-col w-full min-w-0 max-w-screen-2xl mx-auto xl:p-6 xl:pt-4 xl:pb-6 overflow-hidden min-h-0">
+                <div className="flex-1 flex flex-col xl:grid xl:grid-cols-2 xl:gap-6 min-h-0">
                 
-                {/* 1. Prompt Input Area */}
-                <div className="flex-shrink-0 z-10 border-b border-gray-200 dark:border-gray-700">
-                    <PromptInput
-                        prompt={prompt}
-                        setPrompt={setPrompt}
-                        aspectRatio={aspectRatio}
-                        setAspectRatio={setAspectRatio}
-                        resolution={resolution}
-                        setResolution={setResolution}
-                        onSubmit={handlePromptSubmit}
-                        onAnalyze={handleAnalyzeOnly}
-                        isLoading={isGenerating}
-                        isGenerating={isGenerating}
-                        isFirstRun={!hasGenerated}
+                {/* Left Column (Editor) */}
+                <div className={`flex flex-col gap-0 bg-white dark:bg-gray-800 xl:rounded-lg xl:border border-gray-200 dark:border-gray-700 shadow-sm transition-colors duration-200 ${mobileView === 'editor' ? 'flex flex-1' : 'hidden xl:flex'} h-full overflow-y-auto`}>
+                    
+                    {/* 1. Prompt Input Area */}
+                    <div className="flex-shrink-0 z-10 border-b border-gray-200 dark:border-gray-700">
+                        <PromptInput
+                            prompt={prompt}
+                            setPrompt={setPrompt}
+                            aspectRatio={aspectRatio}
+                            setAspectRatio={setAspectRatio}
+                            resolution={resolution}
+                            setResolution={setResolution}
+                            onSubmit={handlePromptSubmit}
+                            onAnalyze={handleAnalyzeOnly}
+                            isLoading={isGenerating}
+                            isGenerating={isGenerating}
+                            isFirstRun={!hasGenerated}
+                            mode={mode}
+                            setMode={handleModeChange}
+                            referenceImage={referenceImage}
+                            setReferenceImage={setReferenceImage}
+                        />
+                    </div>
+
+                    {/* 2. Tool Tabs */}
+                    <div className="flex flex-shrink-0 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 justify-between items-center pr-2">
+                        <div className="flex flex-1">
+                            <ToolTabButton label="澄清问题" tab="clarify" current={activeToolTab} description="回答 AI 问题以完善提示词细节" />
+                            <ToolTabButton label="信念图" tab="graph" current={activeToolTab} description="可视化编辑场景中的实体关系" />
+                            <ToolTabButton 
+                                label={(mode === 'image' || mode === 'image-to-image') ? '图片属性' : (mode === 'video' ? '视频属性' : '故事属性')} 
+                                tab="attributes" 
+                                current={activeToolTab} 
+                                description="调整场景中各个对象的具体属性"
+                            />
+                        </div>
+                    </div>
+
+                    {/* 3. Tool Content - Added pb-14 for mobile footer spacing */}
+                    <div className="relative bg-gray-50/30 dark:bg-gray-900/30 flex-1 overflow-hidden flex flex-col min-h-[450px] pb-[3.5rem] xl:pb-0">
+
+                        {totalUpdateCount > 0 && (
+                            <div className="flex-shrink-0 bg-blue-50 dark:bg-blue-900/20 border-b border-blue-100 dark:border-blue-800 p-3 flex justify-between items-center animate-fade-in z-20">
+                                <div className="text-xs text-blue-800 dark:text-blue-200 font-medium flex items-center gap-2">
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                    <span>{totalUpdateCount} 个待处理更改</span>
+                                </div>
+                                <button 
+                                    onClick={handleApplyAllUpdates}
+                                    disabled={isUpdatingPrompt}
+                                    className={`bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold py-1.5 px-4 rounded-md shadow-sm flex items-center gap-2 transition-all ${isUpdatingPrompt ? 'opacity-70 cursor-wait' : 'hover:shadow-md'}`}
+                                    title={isUpdatingPrompt ? "正在更新提示词..." : "应用澄清问题和信念图中的所有更改"}
+                                >
+                                    {isUpdatingPrompt ? (
+                                        <>
+                                        <svg className="animate-spin h-3 w-3 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                        </svg>
+                                        <span>更新中...</span>
+                                        </>
+                                    ) : (
+                                        <span>更新提示词</span>
+                                    )}
+                                </button>
+                            </div>
+                        )}
+
+                        {/* Clarifications - Updated to use flex/overflow-hidden for internal scrolling */}
+                        <div className={`p-4 ${activeToolTab === 'clarify' ? 'flex flex-col' : 'hidden'} h-full overflow-hidden`}>
+                            <ClarificationCard
+                                clarifications={clarifications}
+                                onRefresh={handleRefreshClarifications}
+                                isLoading={isClarificationsLoading} 
+                                pendingAnswers={pendingClarificationAnswers}
+                                setPendingAnswers={setPendingClarificationAnswers}
+                                prompt={prompt}
+                            />
+                        </div>
+
+                        {/* Belief Graph / Attributes - Graph now fills the flex container */}
+                        <div className={`flex-1 w-full min-h-0 ${activeToolTab !== 'clarify' ? 'flex flex-col' : 'hidden'}`}>
+                            <BeliefGraph 
+                                data={beliefGraph} 
+                                isLoading={isGraphLoading} 
+                                mode={mode} // Remove the ternary check
+                                view={activeToolTab === 'attributes' ? 'attributes' : 'graph'}
+                                isVisible={activeToolTab !== 'clarify'}
+                                pendingAttributeUpdates={pendingAttributeUpdates}
+                                setPendingAttributeUpdates={setPendingAttributeUpdates}
+                                pendingRelationshipUpdates={pendingRelationshipUpdates}
+                                setPendingRelationshipUpdates={setPendingRelationshipUpdates}
+                                pendingClarificationCount={pendingClarificationCount}
+                                currentPrompt={prompt}
+                            />
+                        </div>
+                    </div>
+                </div>
+                
+                {/* Right Column (Preview) - Added pb-14 for mobile footer spacing */}
+                <div className={`flex flex-col xl:flex ${mobileView === 'preview' ? 'flex' : 'hidden mt-4 xl:mt-0'} flex-1 h-full min-h-0 pb-[3.5rem] xl:pb-0`}>
+                    <OutputDisplay
+                        imageHistory={imageHistory}
+                        story={story}
+                        video={video}
                         mode={mode}
-                        setMode={handleModeChange}
-                        referenceImage={referenceImage}
-                        setReferenceImage={setReferenceImage}
+                        isLoading={isGenerating}
+                        error={galleryErrors[mode]}
+                        isOutdated={isOutdated}
+                        requiresApiKey={requiresApiKey}
+                        onSelectKey={handleSelectApiKey}
                     />
                 </div>
 
-                {/* 2. Tool Tabs */}
-                <div className="flex flex-shrink-0 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 justify-between items-center pr-2">
-                    <div className="flex flex-1">
-                        <ToolTabButton label="澄清问题" tab="clarify" current={activeToolTab} description="回答 AI 问题以完善提示词细节" />
-                        <ToolTabButton label="信念图" tab="graph" current={activeToolTab} description="可视化编辑场景中的实体关系" />
-                        <ToolTabButton 
-                            label={(mode === 'image' || mode === 'image-to-image') ? '图片属性' : (mode === 'video' ? '视频属性' : '故事属性')} 
-                            tab="attributes" 
-                            current={activeToolTab} 
-                            description="调整场景中各个对象的具体属性"
-                        />
-                    </div>
                 </div>
-
-                {/* 3. Tool Content - Added pb-14 for mobile footer spacing */}
-                <div className="relative bg-gray-50/30 dark:bg-gray-900/30 flex-1 overflow-hidden flex flex-col min-h-[450px] pb-[3.5rem] xl:pb-0">
-
-                    {totalUpdateCount > 0 && (
-                        <div className="flex-shrink-0 bg-blue-50 dark:bg-blue-900/20 border-b border-blue-100 dark:border-blue-800 p-3 flex justify-between items-center animate-fade-in z-20">
-                            <div className="text-xs text-blue-800 dark:text-blue-200 font-medium flex items-center gap-2">
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                </svg>
-                                <span>{totalUpdateCount} 个待处理更改</span>
-                            </div>
-                            <button 
-                                onClick={handleApplyAllUpdates}
-                                disabled={isUpdatingPrompt}
-                                className={`bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold py-1.5 px-4 rounded-md shadow-sm flex items-center gap-2 transition-all ${isUpdatingPrompt ? 'opacity-70 cursor-wait' : 'hover:shadow-md'}`}
-                                title={isUpdatingPrompt ? "正在更新提示词..." : "应用澄清问题和信念图中的所有更改"}
-                            >
-                                {isUpdatingPrompt ? (
-                                    <>
-                                    <svg className="animate-spin h-3 w-3 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                    </svg>
-                                    <span>更新中...</span>
-                                    </>
-                                ) : (
-                                    <span>更新提示词</span>
-                                )}
-                            </button>
-                        </div>
-                    )}
-
-                    {/* Clarifications - Updated to use flex/overflow-hidden for internal scrolling */}
-                    <div className={`p-4 ${activeToolTab === 'clarify' ? 'flex flex-col' : 'hidden'} h-full overflow-hidden`}>
-                        <ClarificationCard
-                            clarifications={clarifications}
-                            onRefresh={handleRefreshClarifications}
-                            isLoading={isClarificationsLoading} 
-                            pendingAnswers={pendingClarificationAnswers}
-                            setPendingAnswers={setPendingClarificationAnswers}
-                            prompt={prompt}
-                        />
-                    </div>
-
-                    {/* Belief Graph / Attributes - Graph now fills the flex container */}
-                    <div className={`flex-1 w-full min-h-0 ${activeToolTab !== 'clarify' ? 'flex flex-col' : 'hidden'}`}>
-                        <BeliefGraph 
-                            data={beliefGraph} 
-                            isLoading={isGraphLoading} 
-                            mode={mode} // Remove the ternary check
-                            view={activeToolTab === 'attributes' ? 'attributes' : 'graph'}
-                            isVisible={activeToolTab !== 'clarify'}
-                            pendingAttributeUpdates={pendingAttributeUpdates}
-                            setPendingAttributeUpdates={setPendingAttributeUpdates}
-                            pendingRelationshipUpdates={pendingRelationshipUpdates}
-                            setPendingRelationshipUpdates={setPendingRelationshipUpdates}
-                            pendingClarificationCount={pendingClarificationCount}
-                            currentPrompt={prompt}
-                        />
-                    </div>
-                </div>
-            </div>
-            
-            {/* Right Column (Preview) - Added pb-14 for mobile footer spacing */}
-            <div className={`flex flex-col xl:flex ${mobileView === 'preview' ? 'flex' : 'hidden mt-4 xl:mt-0'} flex-1 h-full min-h-0 pb-[3.5rem] xl:pb-0`}>
-                <OutputDisplay
-                    imageHistory={imageHistory}
-                    story={story}
-                    video={video}
-                    mode={mode}
-                    isLoading={isGenerating}
-                    error={galleryErrors[mode]}
-                    isOutdated={isOutdated}
-                    requiresApiKey={requiresApiKey}
-                    onSelectKey={handleSelectApiKey}
-                />
-            </div>
-
-            </div>
-        </main>
+            </main>
+        </div>
 
         {/* Mobile Bottom Navigation - Fixed */}
         <div 
