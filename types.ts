@@ -1,3 +1,4 @@
+
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -49,5 +50,23 @@ export interface ImageGenerationItem {
   prompt: string;
   aspectRatio: string;
   images: string[];
-  referenceImage?: string;
+  referenceImages?: string[];
+}
+
+export interface EntityStyle {
+  color?: string;
+  textColor?: string;
+  width?: number;
+  height?: number;
+}
+
+export interface RelationshipStyle {
+  color?: string;
+  width?: number;
+  dash?: string;
+}
+
+export interface GraphStyles {
+  entities: Record<string, EntityStyle>;
+  relationships: Record<string, RelationshipStyle>;
 }

@@ -1,10 +1,11 @@
+
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
 */
 
 import React, { useState, useMemo, useEffect, useRef, useCallback, useLayoutEffect } from 'react';
-import { BeliefState, Entity, Attribute, Relationship, Candidate, GraphUpdate } from '../types';
+import { BeliefState, Entity, Attribute, Relationship, Candidate, GraphUpdate, EntityStyle, RelationshipStyle, GraphStyles } from '../types';
 
 interface BeliefGraphProps {
   data: BeliefState | null;
@@ -22,7 +23,6 @@ interface BeliefGraphProps {
 
 const getHighestProbabilityValue = (attribute: Attribute): string => {
     if (!attribute.value || attribute.value.length === 0) return 'Unknown';
-    // With strict schema output, the first item is generally the model's top choice
     return attribute.value[0].name;
 };
 
@@ -34,11 +34,9 @@ const ThinkingProcess = ({ prompt }: { prompt: string }) => {
         const cleanPrompt = prompt.toLowerCase().replace(/[^\w\s]/g, '');
         const words = cleanPrompt.split(/\s+/).filter(w => w.length > 0);
         
-        // Context detection
         const hasHuman = words.some(w => ['man', 'woman', 'boy', 'girl', 'person', 'people', 'child', 'kid', 'guy', 'lady', 'friends', 'family', 'couple'].includes(w));
         const hasAction = words.some(w => w.endsWith('ing')); 
         
-        // Find a significant noun-like word (longer than 3 chars, not common stop words)
         const stopWords = ['about', 'after', 'before', 'their', 'where', 'which', 'there', 'could', 'would', 'with', 'from', 'that', 'this', 'some', 'what'];
         const significantWord = words.find(w => w.length > 3 && !stopWords.includes(w)) || 'entities';
         const truncatedKeyword = significantWord.length > 10 ? significantWord.substring(0, 9) + '...' : significantWord;
@@ -66,7 +64,7 @@ const ThinkingProcess = ({ prompt }: { prompt: string }) => {
     useEffect(() => {
         const interval = setInterval(() => {
             setStep((s) => (s + 1) % steps.length);
-        }, 2200); // 2.2 seconds per step
+        }, 2200);
         return () => clearInterval(interval);
     }, [steps]);
 
@@ -77,7 +75,6 @@ const ThinkingProcess = ({ prompt }: { prompt: string }) => {
     );
 };
 
-// --- Styles Placeholder Component ---
 const EmptyStatePlaceholder = ({ text }: { text: string }) => (
     <div className="bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-lg flex flex-col items-center justify-center text-center text-gray-400 dark:text-gray-500 p-8 max-w-lg w-full shadow-sm mx-auto my-auto">
         <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mb-3 text-gray-300 dark:text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -99,34 +96,26 @@ const AttributeEditor: React.FC<AttributeEditorProps> = ({ attribute, entity, on
     const [isCustomMode, setIsCustomMode] = useState(false);
     const [customValue, setCustomValue] = useState("");
     
-    // Check if this is an existence attribute (supports legacy 'existence_in_image' and new 'existence')
     const isExistence = attribute.name === 'existence' || attribute.name === 'existence_in_image';
 
-    // Determine the value to show
     let currentValue = pendingValue;
     
     if (currentValue === undefined) {
         if (isExistence) {
-             // For existence, we look at the candidates. Usually [ {name: 'true', ...}, {name: 'false', ...} ]
              currentValue = getHighestProbabilityValue(attribute);
-             if (currentValue === 'Unknown') currentValue = 'true'; // Default to true if missing for existence
+             if (currentValue === 'Unknown') currentValue = 'true';
         } else {
-             // For standard attributes:
-             // If explicitly in prompt, show the inferred value.
-             // If not in prompt, show 'Unknown' to allow user to explicitly select the inferred value later.
              currentValue = attribute.presence_in_prompt ? getHighestProbabilityValue(attribute) : 'Unknown';
         }
     }
 
     const isModified = pendingValue !== undefined;
 
-    // Reset custom mode when attribute changes (e.g. after a refresh)
     useEffect(() => {
         setIsCustomMode(false);
         setCustomValue("");
     }, [attribute]);
 
-    // --- Existence Toggle (Available for all entities) ---
     if (isExistence) {
         const isPresent = currentValue === 'true';
         
@@ -137,24 +126,14 @@ const AttributeEditor: React.FC<AttributeEditorProps> = ({ attribute, entity, on
                      <button
                         onClick={() => onChange(entity.name, attribute.name, 'true')}
                         disabled={isLoading}
-                        title={isLoading ? "加载中..." : "设置存在性为：存在"}
-                        className={`w-1/2 text-xs font-semibold py-1.5 px-2 transition-colors truncate disabled:cursor-not-allowed disabled:bg-gray-200 disabled:text-gray-500 ${
-                            isPresent
-                                ? 'bg-green-600 text-white'
-                                : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
-                        }`}
+                        className={`w-1/2 text-xs font-semibold py-1.5 px-2 transition-colors truncate ${isPresent ? 'bg-green-600 text-white' : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
                     >
                         存在
                     </button>
                     <button
                         onClick={() => onChange(entity.name, attribute.name, 'false')}
                         disabled={isLoading}
-                        title={isLoading ? "加载中..." : "设置存在性为：不存在"}
-                        className={`w-1/2 text-xs font-semibold py-1.5 px-2 transition-colors truncate disabled:cursor-not-allowed disabled:bg-gray-200 disabled:text-gray-500 ${
-                            !isPresent
-                                ? 'bg-red-600 text-white'
-                                : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
-                        }`}
+                        className={`w-1/2 text-xs font-semibold py-1.5 px-2 transition-colors truncate ${!isPresent ? 'bg-red-600 text-white' : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
                     >
                         不存在
                     </button>
@@ -163,7 +142,6 @@ const AttributeEditor: React.FC<AttributeEditorProps> = ({ attribute, entity, on
         );
     }
 
-    // --- Standard Attribute Editor ---
     return (
         <div key={attribute.name} className="grid grid-cols-[100px_1fr] sm:grid-cols-[120px_1fr] gap-4 items-center py-3 border-b border-gray-100 dark:border-gray-700 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors px-2 rounded-lg">
             <label className="text-gray-600 dark:text-gray-400 font-medium text-xs sm:text-sm flex items-center gap-1.5 capitalize leading-tight">
@@ -201,14 +179,6 @@ const AttributeEditor: React.FC<AttributeEditorProps> = ({ attribute, entity, on
                             className="bg-blue-600 text-white hover:bg-blue-700 text-xs font-semibold px-2 rounded disabled:bg-gray-300"
                         >
                             保存
-                        </button>
-                        <button
-                            onClick={() => setIsCustomMode(false)}
-                            className="text-gray-400 hover:text-gray-600 px-1"
-                            title="取消"
-                            disabled={isLoading}
-                        >
-                            &times;
                         </button>
                     </div>
                 ) : (
@@ -257,9 +227,11 @@ const RelationshipEditor: React.FC<{
   position: { x: number; y: number };
   containerDimensions: { width: number; height: number };
   onChange: (newLabel: string) => void;
+  onStyleChange: (style: RelationshipStyle) => void;
+  currentStyle: RelationshipStyle;
   onClose: () => void;
   isLoading: boolean;
-}> = ({ rel, position, containerDimensions, onChange, onClose, isLoading }) => {
+}> = ({ rel, position, containerDimensions, onChange, onStyleChange, currentStyle, onClose, isLoading }) => {
   const editorRef = useRef<HTMLDivElement>(null);
   const [customLabel, setCustomLabel] = useState("");
   const [adjustedStyle, setAdjustedStyle] = useState<React.CSSProperties>({
@@ -288,21 +260,17 @@ const RelationshipEditor: React.FC<{
           let left = position.x;
           let transformX = '-50%';
 
-          // Vertical check: if bottom overflows
           if (top + height > containerDimensions.height - padding) {
-              top = position.y - height - 12; // Flip to above
-              if (top < padding) top = padding; // Clamp top
+              top = position.y - height - 12;
+              if (top < padding) top = padding;
           }
 
-          // Horizontal check
           const halfWidth = width / 2;
           
           if (left + halfWidth > containerDimensions.width - padding) {
-               // Overflow Right -> Anchor to the left of the click
                left = position.x - 12;
                transformX = '-100%';
           } else if (left - halfWidth < padding) {
-               // Overflow Left -> Anchor to the right of the click
                left = position.x + 12;
                transformX = '0%';
           }
@@ -312,8 +280,7 @@ const RelationshipEditor: React.FC<{
               top,
               transform: `translate(${transformX}, 0)`,
               opacity: 1,
-              transition: 'opacity 0.2s ease-out',
-              touchAction: 'pan-y'
+              transition: 'opacity 0.2s ease-out'
           });
       }
   }, [position, containerDimensions, rel.label]);
@@ -323,56 +290,81 @@ const RelationshipEditor: React.FC<{
     ...(rel.alternatives || [])
   ].filter((v, i, a) => a.findIndex(t => t.name === v.name) === i);
 
-  const handleCustomSubmit = () => {
-    if (customLabel.trim()) {
-        onChange(customLabel.trim());
-        onClose();
-    }
-  };
-
   return (
     <div
       ref={editorRef}
-      className="absolute bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm p-3 rounded-lg border border-gray-300 dark:border-gray-600 shadow-xl z-40 w-64 max-h-[300px] overflow-y-auto flex flex-col"
+      className="absolute bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm p-3 rounded-lg border border-gray-300 dark:border-gray-600 shadow-xl z-50 w-72 max-h-[450px] overflow-y-auto flex flex-col scrollbar-thin scrollbar-thumb-gray-300"
       style={adjustedStyle}
       onPointerDown={(e) => e.stopPropagation()}
-      onWheel={(e) => e.stopPropagation()}
     >
       <div className="flex justify-between items-center mb-2 flex-shrink-0">
           <h4 className="font-bold text-sm text-gray-800 dark:text-gray-100">编辑关系</h4>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl leading-none">&times;</button>
       </div>
-      <div className="flex flex-col space-y-1 mb-3 flex-grow">
-        {allOptions.map(alt => (
-            <button
-                key={alt.name}
-                disabled={isLoading}
-                onClick={() => { onChange(alt.name); onClose(); }}
-                className={`text-left text-sm p-1 px-2 rounded transition-colors w-full ${rel.label === alt.name ? 'bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-100 font-semibold' : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300'} disabled:opacity-50`}
-            >
-                {alt.name}
-            </button>
-        ))}
-      </div>
-      <div className="pt-2 border-t border-gray-200 dark:border-gray-700 flex-shrink-0">
-          <div className="flex gap-2">
+
+      <div className="space-y-4">
+        <div>
+            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2 block">标签名称</span>
+            <div className="flex flex-col space-y-1">
+                {allOptions.map(alt => (
+                    <button
+                        key={alt.name}
+                        disabled={isLoading}
+                        onClick={() => { onChange(alt.name); }}
+                        className={`text-left text-xs p-1.5 px-2 rounded transition-colors w-full ${rel.label === alt.name ? 'bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-100 font-semibold' : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300'}`}
+                    >
+                        {alt.name}
+                    </button>
+                ))}
+            </div>
+            <div className="flex gap-1 mt-2">
               <input 
                   type="text"
                   value={customLabel}
                   onChange={(e) => setCustomLabel(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleCustomSubmit()}
-                  placeholder="输入自定义标签..."
-                  className="flex-grow text-xs border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded p-1.5 focus:outline-none focus:border-blue-500"
+                  placeholder="自定义..."
+                  className="flex-grow text-xs border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded p-1 focus:outline-none focus:border-blue-500"
                   disabled={isLoading}
               />
-              <button 
-                  onClick={handleCustomSubmit}
-                  disabled={isLoading || !customLabel.trim()}
-                  className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-2 rounded disabled:bg-gray-300"
-              >
-                  保存
-              </button>
-          </div>
+              <button onClick={() => customLabel.trim() && onChange(customLabel.trim())} className="bg-blue-600 text-white text-[10px] px-2 rounded">保存</button>
+            </div>
+        </div>
+
+        <div className="border-t border-gray-100 dark:border-gray-700 pt-3">
+            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2 block">自定义样式</span>
+            <div className="space-y-3">
+                <div className="flex justify-between items-center gap-2">
+                    <label className="text-[10px] text-gray-500">颜色</label>
+                    <input 
+                        type="color" 
+                        value={currentStyle.color || '#a0aec0'} 
+                        onChange={(e) => onStyleChange({ ...currentStyle, color: e.target.value })}
+                        className="w-10 h-6 p-0 border-0 bg-transparent cursor-pointer"
+                    />
+                </div>
+                <div className="flex justify-between items-center gap-2">
+                    <label className="text-[10px] text-gray-500">宽度: {currentStyle.width || 2}px</label>
+                    <input 
+                        type="range" min="1" max="8" step="1"
+                        value={currentStyle.width || 2} 
+                        onChange={(e) => onStyleChange({ ...currentStyle, width: parseInt(e.target.value) })}
+                        className="w-24 h-4"
+                    />
+                </div>
+                <div className="flex justify-between items-center gap-2">
+                    <label className="text-[10px] text-gray-500">线条</label>
+                    <select 
+                        value={currentStyle.dash || '0'}
+                        onChange={(e) => onStyleChange({ ...currentStyle, dash: e.target.value })}
+                        className="text-[10px] p-1 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded"
+                    >
+                        <option value="0">实线</option>
+                        <option value="5,5">虚线</option>
+                        <option value="2,2">点状</option>
+                    </select>
+                </div>
+            </div>
+        </div>
       </div>
     </div>
   );
@@ -411,7 +403,7 @@ const getEdgePath = (
     targetW: number, targetH: number
 ) => {
     const start = getIntersection(x1, y1, x2, y2, sourceW, sourceH, 0); 
-    const end = getIntersection(x2, y2, x1, y1, targetW, targetH, 5); // 5px gap for arrowhead
+    const end = getIntersection(x2, y2, x1, y1, targetW, targetH, 5);
 
     const path = `M ${start.x} ${start.y} L ${end.x} ${end.y}`;
     const labelX = (start.x + end.x) / 2;
@@ -439,11 +431,16 @@ const BeliefGraph: React.FC<BeliefGraphProps> = ({
     currentPrompt
 }) => {
   const [selectedEntity, setSelectedEntity] = useState<Entity | null>(null);
+  const [activeCardTab, setActiveCardTab] = useState<'info' | 'style'>('info');
   const [hoveredEntity, setHoveredEntity] = useState<string | null>(null);
   const [hoveredRel, setHoveredRel] = useState<Relationship | null>(null);
   const [selectedRel, setSelectedRel] = useState<{rel: Relationship, position: {x: number, y: number}} | null>(null);
   const [nodePositions, setNodePositions] = useState<{[key: string]: {x: number, y: number}}>({});
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
+  const [graphStyles, setGraphStyles] = useState<GraphStyles>(() => {
+      const saved = localStorage.getItem('belief_graph_styles');
+      return saved ? JSON.parse(saved) : { entities: {}, relationships: {} };
+  });
   
   const stablePositions = useRef<{[key: string]: {x: number, y: number}}>({});
   
@@ -453,6 +450,10 @@ const BeliefGraph: React.FC<BeliefGraphProps> = ({
   const dragStartRef = useRef<{ x: number, y: number } | null>(null);
   const activePointersRef = useRef<Map<number, {x: number, y: number}>>(new Map());
   const prevPinchDistRef = useRef<number | null>(null);
+
+  useEffect(() => {
+      localStorage.setItem('belief_graph_styles', JSON.stringify(graphStyles));
+  }, [graphStyles]);
 
   const measureRef = useCallback((node: HTMLDivElement | null) => {
     if (node !== null) {
@@ -494,19 +495,39 @@ const BeliefGraph: React.FC<BeliefGraphProps> = ({
       setPendingRelationshipUpdates(prev => ({ ...prev, [key]: newLabel }));
   };
 
+  const handleEntityStyleChange = (name: string, style: EntityStyle) => {
+      setGraphStyles(prev => ({
+          ...prev,
+          entities: { ...prev.entities, [name]: { ...prev.entities[name], ...style } }
+      }));
+  };
+
+  const handleRelationshipStyleChange = (source: string, target: string, style: RelationshipStyle) => {
+      const key = `${source}:${target}`;
+      setGraphStyles(prev => ({
+          ...prev,
+          relationships: { ...prev.relationships, [key]: { ...prev.relationships[key], ...style } }
+      }));
+  };
+
   const sceneEntityNames = ['image', 'the image', 'story', 'the story', 'video', 'the video'];
   const sceneEntity = useMemo(() => data?.entities.find(e => sceneEntityNames.includes(e.name.toLowerCase())), [data]);
   const objectEntities = useMemo(() => data?.entities.filter(e => !sceneEntityNames.includes(e.name.toLowerCase())) || [], [data]);
+  
   const nodeDimensions = useMemo(() => {
     const dimensions: {[key: string]: {width: number, height: number}} = {};
     if (data) {
         objectEntities.forEach(entity => {
+          const style = graphStyles.entities[entity.name];
           const textWidth = entity.name.length * 8 + 20; 
-          dimensions[entity.name] = { width: Math.max(50, textWidth), height: 36 }; 
+          dimensions[entity.name] = { 
+              width: style?.width || Math.max(50, textWidth), 
+              height: style?.height || 36 
+          }; 
         });
     }
     return dimensions;
-  }, [objectEntities, data]);
+  }, [objectEntities, data, graphStyles.entities]);
 
   const getCanonicalName = useCallback((name: string) => {
     if (!name) return null;
@@ -577,14 +598,16 @@ const BeliefGraph: React.FC<BeliefGraphProps> = ({
     const containerHeight = dimensions.height || 400;
 
     if (objectEntities.length > 0) {
-        const SIMULATION_TICKS = 800; 
-        const REPULSION_STRENGTH = 60000; 
-        const LINK_STRENGTH = 0.2; 
-        const CENTER_GRAVITY = 0.002; 
-        const COLLISION_PADDING = 70; 
-        const DAMPING = 0.8;
+        // --- Improved Auto Layout Algorithm (Refined Force-Directed) ---
+        const SIMULATION_TICKS = 800; // Increased ticks for better convergence
+        const REPULSION_STRENGTH = 75000; 
+        const LINK_STRENGTH = 0.15; 
+        const CENTER_GRAVITY = 0.003; 
+        const COLLISION_PADDING = 80; // More padding to avoid cluttered nodes
+        const DAMPING = 0.75; // More stable damping
+        const LABEL_REPULSION_STRENGTH = 12000; // Force to push nodes away from edge labels
 
-        const initRadius = Math.min(containerWidth, containerHeight) * 0.4;
+        const initRadius = Math.min(containerWidth, containerHeight) * 0.35;
         let nodes = objectEntities.map((entity, i) => {
             const prev = stablePositions.current[entity.name];
             if (prev && !isNaN(prev.x) && !isNaN(prev.y)) {
@@ -614,59 +637,56 @@ const BeliefGraph: React.FC<BeliefGraphProps> = ({
         })).filter(r => r.source && r.target);
 
         for (let tick = 0; tick < SIMULATION_TICKS; tick++) {
+            // Reset forces
             nodes.forEach(node => { node.fx = 0; node.fy = 0; });
+
+            // 1. N-Body Repulsion (Coulomb-like)
             for (let i = 0; i < nodes.length; i++) {
                 for (let j = i + 1; j < nodes.length; j++) {
                     const nodeA = nodes[i], nodeB = nodes[j];
                     const dx = nodeB.x - nodeA.x, dy = nodeB.y - nodeA.y;
                     let distanceSq = dx * dx + dy * dy;
-                    if (distanceSq === 0) distanceSq = 1;
+                    if (distanceSq < 100) distanceSq = 100; // Min distance floor
                     const distance = Math.sqrt(distanceSq);
                     const force = REPULSION_STRENGTH / distanceSq;
                     nodeA.fx -= (dx / distance) * force; nodeA.fy -= (dy / distance) * force;
                     nodeB.fx += (dx / distance) * force; nodeB.fy += (dy / distance) * force;
                 }
             }
+
+            // 2. Edge Label Repulsion (Keep labels clear of other nodes)
             links.forEach(link => {
                 const midX = (link.source.x + link.target.x) / 2;
                 const midY = (link.source.y + link.target.y) / 2;
                 const labelWidth = (link.label || "").length * 6 + 10; 
+                
                 nodes.forEach(node => {
                     if (node === link.source || node === link.target) return;
                     const dx = node.x - midX, dy = node.y - midY;
-                    let dist = Math.sqrt(dx*dx + dy*dy);
-                    if (dist === 0) dist = 1;
+                    let distSq = dx * dx + dy * dy;
+                    if (distSq < 100) distSq = 100;
+                    const dist = Math.sqrt(distSq);
+                    
+                    // Stronger repulsion if the node is close to the link's center point
                     const threshold = (labelWidth / 2) + (Math.max(node.width, node.height) / 2) + 20;
                     if (dist < threshold) {
-                        const forceStrength = (threshold - dist) * 1.5; 
-                        node.fx += (dx / dist) * forceStrength; node.fy += (dy / dist) * forceStrength;
+                        const force = LABEL_REPULSION_STRENGTH / distSq;
+                        node.fx += (dx / dist) * force; node.fy += (dy / dist) * force;
                     }
                 });
             });
-            for (let i = 0; i < links.length; i++) {
-                for (let j = i + 1; j < links.length; j++) {
-                     const l1 = links[i], l2 = links[j];
-                     const m1x = (l1.source.x + l1.target.x) / 2, m1y = (l1.source.y + l1.target.y) / 2;
-                     const m2x = (l2.source.x + l2.target.x) / 2, m2y = (l2.source.y + l2.target.y) / 2;
-                     const dx = m1x - m2x, dy = m1y - m2y;
-                     let dist = Math.sqrt(dx*dx + dy*dy);
-                     if (dist === 0) dist = 0.1;
-                     const minDist = ((l1.label?.length || 0)*9+50 + (l2.label?.length || 0)*9+50) / 2 + 30; 
-                     if (dist < minDist) {
-                         const force = (minDist - dist) * 1.0; 
-                         l1.source.fx += (dx / dist) * force * 0.5; l1.source.fy += (dy / dist) * force * 0.5;
-                         l1.target.fx += (dx / dist) * force * 0.5; l1.target.fy += (dy / dist) * force * 0.5;
-                         l2.source.fx -= (dx / dist) * force * 0.5; l2.source.fy -= (dy / dist) * force * 0.5;
-                         l2.target.fx -= (dx / dist) * force * 0.5; l2.target.fy -= (dy / dist) * force * 0.5;
-                     }
-                }
-            }
+
+            // 3. Link Spring Force (Hooke's Law)
             links.forEach(link => {
                 const dx = link.target.x - link.source.x, dy = link.target.y - link.source.y;
                 const distance = Math.sqrt(dx*dx + dy*dy);
-                const sourceR = link.source.width / 2, targetR = link.target.width / 2;
-                const idealVisibleLength = (link.label || "").length * 8 + 50; 
+                const sourceR = Math.max(link.source.width, link.source.height) / 2;
+                const targetR = Math.max(link.target.width, link.target.height) / 2;
+                
+                // Ideal length based on text size and a fixed buffer
+                const idealVisibleLength = (link.label || "").length * 8 + 60; 
                 const targetDist = sourceR + targetR + idealVisibleLength;
+                
                 if (distance > 0) {
                     const diff = distance - targetDist;
                     const force = LINK_STRENGTH * diff;
@@ -674,21 +694,31 @@ const BeliefGraph: React.FC<BeliefGraphProps> = ({
                     link.target.fx -= (dx / distance) * force; link.target.fy -= (dy / distance) * force;
                 }
             });
+
+            // 4. Center Gravity (Prevent drifting)
             nodes.forEach(node => {
                 const dx = containerWidth / 2 - node.x, dy = containerHeight / 2 - node.y;
                 node.fx += dx * CENTER_GRAVITY; node.fy += dy * CENTER_GRAVITY;
             });
+
+            // Update velocities and positions
             nodes.forEach(node => {
                 node.vx = (node.vx + node.fx) * DAMPING; node.vy = (node.vy + node.fy) * DAMPING;
                 node.x += node.vx; node.y += node.vy;
             });
-            for(let k = 0; k < 3; k++) {
+
+            // 5. Collision Avoidance (Hard push)
+            for(let k = 0; k < 4; k++) { // Multi-pass collision for stability
                 for (let i = 0; i < nodes.length; i++) {
                     for (let j = i + 1; j < nodes.length; j++) {
                         const nodeA = nodes[i], nodeB = nodes[j];
                         const dx = nodeB.x - nodeA.x, dy = nodeB.y - nodeA.y;
-                        const overlapX = (nodeA.width/2 + nodeB.width/2 + COLLISION_PADDING) - Math.abs(dx);
-                        const overlapY = (nodeA.height/2 + nodeB.height/2 + COLLISION_PADDING) - Math.abs(dy);
+                        const minW = (nodeA.width/2 + nodeB.width/2 + COLLISION_PADDING);
+                        const minH = (nodeA.height/2 + nodeB.height/2 + COLLISION_PADDING);
+                        
+                        const overlapX = minW - Math.abs(dx);
+                        const overlapY = minH - Math.abs(dy);
+                        
                         if (overlapX > 0 && overlapY > 0) {
                             if (overlapX < overlapY) {
                                 const sign = Math.sign(dx || (Math.random() - 0.5));
@@ -702,18 +732,23 @@ const BeliefGraph: React.FC<BeliefGraphProps> = ({
                 }
             }
         }
+
+        // Re-center entire group
         if (nodes.length > 0) {
             let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
             nodes.forEach(n => {
-                minX = Math.min(minX, n.x); maxX = Math.max(maxX, n.x); minY = Math.min(minY, n.y); maxY = Math.max(maxY, n.y);
+                minX = Math.min(minX, n.x - n.width/2); maxX = Math.max(maxX, n.x + n.width/2);
+                minY = Math.min(minY, n.y - n.height/2); maxY = Math.max(maxY, n.y + n.height/2);
             });
             const offsetX = (containerWidth / 2) - (minX + maxX) / 2;
             const offsetY = (containerHeight / 2) - (minY + maxY) / 2;
             nodes.forEach(n => { n.x += offsetX; n.y += offsetY; });
         }
+
         const finalPositions = nodes.reduce((acc, node) => {
             acc[node.id] = { x: node.x, y: node.y }; return acc;
         }, {} as {[key: string]: {x: number, y: number}});
+        
         stablePositions.current = finalPositions;
         setNodePositions(finalPositions);
     }
@@ -778,7 +813,7 @@ const BeliefGraph: React.FC<BeliefGraphProps> = ({
         
         const CARD_WIDTH = 384; 
         const PADDING = 20;
-        const SAFE_MARGIN = 40; // Extra safety buffer to ensure we don't hit the container edge
+        const SAFE_MARGIN = 40;
 
         const dims = nodeDimensions[selectedEntity.name];
         const nodeHalfWidth = (dims?.width / 2 || 45) * viewTransform.k;
@@ -805,7 +840,6 @@ const BeliefGraph: React.FC<BeliefGraphProps> = ({
         let style: React.CSSProperties = { 
             position: 'absolute', 
             left: left, 
-            right: 'auto', // Reset class right-4
             width: CARD_WIDTH, 
             display: 'flex', 
             flexDirection: 'column' 
@@ -815,16 +849,12 @@ const BeliefGraph: React.FC<BeliefGraphProps> = ({
             const bottomOffset = dimensions.height - y - 20; 
             const bottom = Math.max(PADDING, bottomOffset);
             style.bottom = bottom;
-            style.top = 'auto'; // Reset potential class top
-            // Cap height to available space above the anchor point minus safety margin
             const availableHeight = dimensions.height - bottom - SAFE_MARGIN;
             style.maxHeight = Math.max(100, availableHeight);
         } else {
             let top = y - 20; 
             if (top < PADDING) top = PADDING;
             style.top = top;
-            style.bottom = 'auto'; // Reset potential class bottom
-            // Cap height to available space below the anchor point minus safety margin
             const availableHeight = dimensions.height - top - SAFE_MARGIN;
             style.maxHeight = Math.max(100, availableHeight);
         }
@@ -837,7 +867,7 @@ const BeliefGraph: React.FC<BeliefGraphProps> = ({
     <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 w-full flex flex-col flex-1 min-h-0 relative transition-colors duration-200 shadow-sm">
       
       {isLoading && (
-        <div className="absolute inset-0 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm flex items-center justify-center z-50 rounded-lg transition-opacity duration-300">
+        <div className="absolute inset-0 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm flex items-center justify-center z-[100] rounded-lg transition-opacity duration-300">
             <div className="flex flex-col items-center p-8 bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-100 dark:border-gray-700 max-w-sm w-full mx-4">
                 <div className="relative mb-4">
                      <svg className="animate-spin h-10 w-10 text-blue-500 dark:text-blue-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -940,6 +970,7 @@ const BeliefGraph: React.FC<BeliefGraphProps> = ({
                         const isSelected = selectedRel?.rel.source === rel.source && selectedRel?.rel.target === rel.target && selectedRel?.rel.label === rel.label;
                         const isModified = pendingRelationshipUpdates[`${rel.source}:${rel.target}`] !== undefined;
                         const currentLabel = pendingRelationshipUpdates[`${rel.source}:${rel.target}`] || rel.label;
+                        const style = graphStyles.relationships[`${rel.source}:${rel.target}`] || {};
 
                         return (
                         <g key={`rel-${i}`} style={{ opacity, transition: 'opacity 0.3s ease-in-out' }}
@@ -949,12 +980,19 @@ const BeliefGraph: React.FC<BeliefGraphProps> = ({
                             onPointerDown={(e) => { e.stopPropagation(); }} 
                             onClick={(e) => { e.stopPropagation(); handleRelationshipClick(rel, e); }}
                         >
-                            <path d={path} stroke={isModified ? '#3b82f6' : (isSelected ? '#3b82f6' : '#a0aec0')} strokeWidth={isModified ? "3" : "2"} fill="none" markerEnd="url(#arrowhead)" />
+                            <path 
+                                d={path} 
+                                stroke={style.color || (isModified ? '#3b82f6' : (isSelected ? '#3b82f6' : '#a0aec0'))} 
+                                strokeWidth={style.width || (isModified ? 3 : 2)} 
+                                strokeDasharray={style.dash || "0"}
+                                fill="none" 
+                                markerEnd="url(#arrowhead)" 
+                            />
                             <text 
                                 x={labelX} y={labelY + 4} 
                                 textAnchor="middle" 
                                 fontSize="10" 
-                                fill={isModified ? '#1d4ed8' : (isSelected ? '#1e40af' : '#2d3748')} 
+                                fill={style.color || (isModified ? '#1d4ed8' : (isSelected ? '#1e40af' : '#2d3748'))} 
                                 fontWeight="bold" 
                                 stroke="white" 
                                 strokeWidth="8px" 
@@ -972,6 +1010,7 @@ const BeliefGraph: React.FC<BeliefGraphProps> = ({
                         const isSelected = selectedEntity?.name === entity.name;
                         const dims = nodeDimensions[entity.name];
                         const hasModifiedAttr = Object.keys(pendingAttributeUpdates).some(k => k.startsWith(`${entity.name}:`));
+                        const style = graphStyles.entities[entity.name] || {};
 
                         let opacity = 1;
                         if (hoveredRel) opacity = (entity.name === hoveredRel.source || entity.name === hoveredRel.target) ? 1 : 0.1;
@@ -980,29 +1019,20 @@ const BeliefGraph: React.FC<BeliefGraphProps> = ({
 
                         return (
                         <g key={entity.name} transform={`translate(${pos.x || 0}, ${pos.y || 0})`}
-                            onClick={(e) => { e.stopPropagation(); setSelectedEntity(entity); setSelectedRel(null); }}
+                            onClick={(e) => { e.stopPropagation(); setSelectedEntity(entity); setSelectedRel(null); setActiveCardTab('info'); }}
                             onMouseEnter={() => setHoveredEntity(entity.name)} 
                             onMouseLeave={() => setHoveredEntity(null)}
                             style={{ opacity, transition: 'opacity 0.3s ease-in-out' }}>
                             <rect x={-(dims?.width || 90) / 2} y={-(dims?.height || 36) / 2} width={dims?.width || 90} height={dims?.height || 36} rx="8"
-                            fill={isSelected ? '#fefcbf' : (hasModifiedAttr ? '#eff6ff' : '#ffffff')} 
+                            fill={style.color || (isSelected ? '#fefcbf' : (hasModifiedAttr ? '#eff6ff' : '#ffffff'))} 
                             stroke={isSelected ? '#f6e05e' : (hasModifiedAttr ? '#3b82f6' : '#cbd5e0')}
                             strokeWidth={hasModifiedAttr ? "2" : "2"} strokeDasharray={entity.presence_in_prompt ? 'none' : '4 2'} />
-                            <text textAnchor="middle" dy="0.3em" fill="#2d3748" fontSize="12" fontWeight="600">{entity.name}</text>
+                            <text textAnchor="middle" dy="0.3em" fill={style.textColor || "#2d3748"} fontSize="12" fontWeight="600">{entity.name}</text>
                         </g>
                         );
                     })}
                   </g>
               </svg>
-            )}
-
-            {data && objectEntities.length === 0 && !isLoading && (
-                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                    <div className="text-center text-gray-500 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm p-4 rounded-lg pointer-events-auto">
-                      <p className="font-semibold">未找到可显示的对象。</p>
-                      <p className="text-sm mt-1">请检查属性标签页。</p>
-                    </div>
-                  </div>
             )}
         </div>
 
@@ -1013,50 +1043,117 @@ const BeliefGraph: React.FC<BeliefGraphProps> = ({
             containerDimensions={dimensions}
             onClose={() => setSelectedRel(null)}
             isLoading={isLoading}
+            currentStyle={graphStyles.relationships[`${selectedRel.rel.source}:${selectedRel.rel.target}`] || {}}
             onChange={(newLabel) => handleRelationshipChange(selectedRel.rel.source, selectedRel.rel.target, newLabel)}
+            onStyleChange={(style) => handleRelationshipStyleChange(selectedRel.rel.source, selectedRel.rel.target, style)}
             />
         )}
 
         {selectedEntity && (
             <div 
-            className={`absolute bottom-4 left-4 right-4 md:w-96 bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm rounded-lg border border-gray-200 dark:border-gray-700 shadow-xl animate-fade-in z-[100] flex flex-col overflow-hidden ${cardStyle ? '' : 'md:right-4 md:top-4 md:bottom-auto md:left-auto md:max-h-[60vh]'}`}
+            className={`absolute bottom-4 left-4 right-4 md:w-96 bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm rounded-lg border border-gray-200 dark:border-gray-700 shadow-xl animate-fade-in z-[200] flex flex-col overflow-hidden ${cardStyle ? '' : 'md:right-4 md:top-4 md:bottom-auto md:left-auto md:max-h-[60vh]'}`}
             style={{...cardStyle, touchAction: 'pan-y'}}
             onClick={(e) => e.stopPropagation()}
-            onPointerDown={(e) => e.stopPropagation()} // Stop panning when interacting with box
-            onWheel={(e) => e.stopPropagation()} // Stop zooming when scrolling box
+            onPointerDown={(e) => e.stopPropagation()}
             >
-            {/* Absolute Close Button */}
             <button 
                 onClick={() => setSelectedEntity(null)} 
                 className="absolute top-3 right-3 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 z-10 bg-white/50 dark:bg-gray-800/50 rounded-full p-1"
                 aria-label="Close"
             >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-                </svg>
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
             </button>
 
-            {/* Scrollable Area */}
-            <div className="overflow-y-auto p-4 pt-5 min-h-0 flex-grow scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600">
-                <div className="pr-8 mb-2"> {/* Right padding for close button */}
-                    <h3 className="font-bold text-lg text-gray-800 dark:text-gray-100 leading-tight">实体: {selectedEntity.name}</h3>
-                    <p className="text-sm text-gray-500 dark:text-gray-400 italic mt-1">{selectedEntity.description}</p>
-                </div>
-                
-                <div className="border-b border-gray-100 dark:border-gray-700 mb-3"></div>
+            <div className="flex border-b border-gray-100 dark:border-gray-700">
+                <button 
+                    onClick={() => setActiveCardTab('info')} 
+                    className={`flex-1 py-2 text-xs font-bold transition-colors ${activeCardTab === 'info' ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50/30' : 'text-gray-400'}`}
+                >
+                    实体信息
+                </button>
+                <button 
+                    onClick={() => setActiveCardTab('style')} 
+                    className={`flex-1 py-2 text-xs font-bold transition-colors ${activeCardTab === 'style' ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50/30' : 'text-gray-400'}`}
+                >
+                    外观样式
+                </button>
+            </div>
 
-                {selectedEntity.attributes.length > 0 && (
-                    <div className="space-y-1">
-                    {selectedEntity.attributes.map(attr => (
-                        <AttributeEditor 
-                            key={attr.name} 
-                            attribute={attr} 
-                            entity={selectedEntity} 
-                            onChange={handleAttributeChange} 
-                            isLoading={isLoading} 
-                            pendingValue={pendingAttributeUpdates[`${selectedEntity.name}:${attr.name}`]}
-                        />
-                    ))}
+            <div className="overflow-y-auto p-4 pt-5 min-h-0 flex-grow scrollbar-thin scrollbar-thumb-gray-300">
+                {activeCardTab === 'info' ? (
+                    <>
+                        <div className="pr-8 mb-2">
+                            <h3 className="font-bold text-lg text-gray-800 dark:text-gray-100 leading-tight">实体: {selectedEntity.name}</h3>
+                            <p className="text-sm text-gray-500 dark:text-gray-400 italic mt-1">{selectedEntity.description}</p>
+                        </div>
+                        <div className="border-b border-gray-100 dark:border-gray-700 mb-3"></div>
+                        <div className="space-y-1">
+                        {selectedEntity.attributes.map(attr => (
+                            <AttributeEditor 
+                                key={attr.name} 
+                                attribute={attr} 
+                                entity={selectedEntity} 
+                                onChange={handleAttributeChange} 
+                                isLoading={isLoading} 
+                                pendingValue={pendingAttributeUpdates[`${selectedEntity.name}:${attr.name}`]}
+                            />
+                        ))}
+                        </div>
+                    </>
+                ) : (
+                    <div className="space-y-4">
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-1">
+                                <label className="text-[10px] font-bold text-gray-400 uppercase">填充颜色</label>
+                                <input 
+                                    type="color" 
+                                    value={graphStyles.entities[selectedEntity.name]?.color || '#ffffff'} 
+                                    onChange={(e) => handleEntityStyleChange(selectedEntity.name, { color: e.target.value })}
+                                    className="w-full h-8 cursor-pointer rounded border border-gray-200"
+                                />
+                            </div>
+                            <div className="space-y-1">
+                                <label className="text-[10px] font-bold text-gray-400 uppercase">文字颜色</label>
+                                <input 
+                                    type="color" 
+                                    value={graphStyles.entities[selectedEntity.name]?.textColor || '#2d3748'} 
+                                    onChange={(e) => handleEntityStyleChange(selectedEntity.name, { textColor: e.target.value })}
+                                    className="w-full h-8 cursor-pointer rounded border border-gray-200"
+                                />
+                            </div>
+                        </div>
+                        <div className="space-y-1">
+                            <label className="text-[10px] font-bold text-gray-400 uppercase block">宽度: {nodeDimensions[selectedEntity.name]?.width || 90}px</label>
+                            <input 
+                                type="range" min="40" max="250" step="5"
+                                value={nodeDimensions[selectedEntity.name]?.width || 90}
+                                onChange={(e) => handleEntityStyleChange(selectedEntity.name, { width: parseInt(e.target.value) })}
+                                className="w-full h-4"
+                            />
+                        </div>
+                        <div className="space-y-1">
+                            <label className="text-[10px] font-bold text-gray-400 uppercase block">高度: {nodeDimensions[selectedEntity.name]?.height || 36}px</label>
+                            <input 
+                                type="range" min="20" max="150" step="2"
+                                value={nodeDimensions[selectedEntity.name]?.height || 36}
+                                onChange={(e) => handleEntityStyleChange(selectedEntity.name, { height: parseInt(e.target.value) })}
+                                className="w-full h-4"
+                            />
+                        </div>
+                        <div className="pt-2">
+                             <button 
+                                onClick={() => {
+                                    setGraphStyles(prev => {
+                                        const newEntities = { ...prev.entities };
+                                        delete newEntities[selectedEntity.name];
+                                        return { ...prev, entities: newEntities };
+                                    });
+                                }}
+                                className="w-full text-[10px] font-bold text-red-500 uppercase border border-red-100 rounded py-2 hover:bg-red-50 transition-colors"
+                             >
+                                重置样式
+                             </button>
+                        </div>
                     </div>
                 )}
             </div>
@@ -1069,6 +1166,8 @@ const BeliefGraph: React.FC<BeliefGraphProps> = ({
         .animate-fade-in-up { animation: fade-in-up 0.3s ease-out forwards; }
         @keyframes fade-in { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
         .animate-fade-in { animation: fade-in 0.2s ease-out forwards; }
+        input[type="range"] { -webkit-appearance: none; background: #e2e8f0; border-radius: 9999px; height: 6px; outline: none; }
+        input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 14px; height: 14px; background: #3b82f6; border-radius: 50%; cursor: pointer; border: 2px solid white; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
       `}</style>
     </div>
   );
