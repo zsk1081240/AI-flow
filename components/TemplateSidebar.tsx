@@ -95,6 +95,7 @@ export const TemplateSidebar: React.FC<TemplateSidebarProps> = ({
   const [editingTemplate, setEditingTemplate] = useState<Template | null>(null);
   const [formTitle, setFormTitle] = useState('');
   const [formContent, setFormContent] = useState('');
+  const [hasCustomKey, setHasCustomKey] = useState(false);
 
   useEffect(() => {
     const saved = localStorage.getItem('prompt_templates');
@@ -104,6 +105,10 @@ export const TemplateSidebar: React.FC<TemplateSidebarProps> = ({
       } catch (e) {
         console.error("Failed to load templates", e);
       }
+    }
+    // Check for existing custom key
+    if (localStorage.getItem('gemini_api_key')) {
+        setHasCustomKey(true);
     }
   }, []);
 
@@ -152,6 +157,26 @@ export const TemplateSidebar: React.FC<TemplateSidebarProps> = ({
           setTemplates(prev => [newTemplate, ...prev]);
       }
       setTemplateView('list');
+  };
+
+  const handleManageApiKey = () => {
+      const current = localStorage.getItem('gemini_api_key') || '';
+      const newKey = window.prompt("输入您的 Gemini API Key (将被缓存于本地浏览器中):", current);
+      if (newKey !== null) { // User didn't cancel
+          const trimmed = newKey.trim();
+          if (trimmed) {
+              localStorage.setItem('gemini_api_key', trimmed);
+              setHasCustomKey(true);
+          } else {
+              localStorage.removeItem('gemini_api_key');
+              setHasCustomKey(false);
+          }
+          // Optionally reload or just let the service pick it up next time
+          // Reloading ensures any persistent state issues are cleared
+          if (window.confirm("API Key 已更新。是否刷新页面以确保所有组件生效？")) {
+             window.location.reload();
+          }
+      }
   };
 
   const isImageMode = mode === 'image' || mode === 'image-to-image';
@@ -293,11 +318,15 @@ export const TemplateSidebar: React.FC<TemplateSidebarProps> = ({
 
                         <div className="pt-2 border-t border-ai-border/50">
                             <button 
-                                onClick={onSelectApiKey}
-                                className="w-full text-xs bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 border border-amber-500/30 py-2 rounded-lg transition-colors flex items-center justify-center gap-2"
+                                onClick={handleManageApiKey}
+                                className={`w-full text-xs border py-2 rounded-lg transition-colors flex items-center justify-center gap-2 ${
+                                    hasCustomKey 
+                                    ? 'bg-green-500/10 text-green-500 border-green-500/30 hover:bg-green-500/20' 
+                                    : 'bg-amber-500/10 text-amber-500 border-amber-500/30 hover:bg-amber-500/20'
+                                }`}
                             >
-                                <span className="w-2 h-2 rounded-full bg-amber-500"></span>
-                                管理 API 密钥
+                                <span className={`w-2 h-2 rounded-full ${hasCustomKey ? 'bg-green-500' : 'bg-amber-500'}`}></span>
+                                {hasCustomKey ? '已设置 API 密钥' : '设置 API 密钥'}
                             </button>
                         </div>
                      </div>

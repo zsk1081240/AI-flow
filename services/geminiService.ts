@@ -1,3 +1,4 @@
+
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -6,15 +7,26 @@
 import { GoogleGenAI, GenerateContentResponse, GenerateImagesResponse, Modality, Type } from "@google/genai";
 import { BeliefState, Clarification, Relationship, Candidate, GraphUpdate, Entity, Attribute } from '../types';
 
-const API_KEY = process.env.API_KEY;
-
-if (!API_KEY) {
-  throw new Error("API_KEY environment variable not set");
-}
-
-const ai = new GoogleGenAI({ apiKey: API_KEY });
-
 export type StatusUpdateCallback = (message: string) => void;
+
+// Helper to retrieve API Key dynamically
+// Priority: Local Storage (User Input) -> Environment Variable
+const getApiKey = (): string => {
+    const cachedKey = localStorage.getItem('gemini_api_key');
+    if (cachedKey && cachedKey.trim().length > 0) {
+        return cachedKey.trim();
+    }
+    return process.env.API_KEY || "";
+};
+
+// Helper to get an authenticated AI client instance
+const getGenAI = (): GoogleGenAI => {
+    const apiKey = getApiKey();
+    if (!apiKey) {
+        throw new Error("未找到 API 密钥。请点击左下角“管理 API 密钥”进行配置，或检查环境变量。");
+    }
+    return new GoogleGenAI({ apiKey });
+};
 
 const isRetryableError = (error: any): boolean => {
   const errorMessage = typeof error?.message === 'string' ? error.message : JSON.stringify(error);
@@ -115,6 +127,7 @@ export const parsePromptToBeliefGraph = async (prompt: string, mode: 'image' | '
     const relationshipSchema = { type: Type.OBJECT, properties: { source: { type: Type.STRING }, target: { type: Type.STRING }, label: { type: Type.STRING }, alternatives: { type: Type.ARRAY, items: { type: Type.STRING }, nullable: true } }, required: ['source', 'target', 'label'] };
 
     try {
+        const ai = getGenAI();
         const response = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
             model: 'gemini-3-flash-preview', // Upgraded for better stability
             contents: generationPrompt,
@@ -162,6 +175,7 @@ export const generateClarifications = async (prompt: string, askedQuestions: str
 以 JSON 数组形式返回。`;
 
     try {
+        const ai = getGenAI();
         const response = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
             model: 'gemini-3-flash-preview', // Upgraded for better stability
             contents: finalPrompt,
@@ -207,6 +221,7 @@ export const refinePromptWithAllUpdates = async (
   说明: 整合属性、更新关系、融入回答。若 existence 为 false 则删除该实体。不要总结，要补全。只返回字符串。`;
   
     try {
+      const ai = getGenAI();
       const response = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
         model: 'gemini-3-flash-preview',
         contents: prompt,
@@ -257,17 +272,8 @@ export const generateImagesFromPrompt = async (
             });
             parts.push({ text: finalPrompt });
 
-            // Check API Key for Pro model
-            const win = window as any;
-            if (useProModel && win.aistudio && win.aistudio.hasSelectedApiKey) {
-                const hasKey = await win.aistudio.hasSelectedApiKey();
-                if (!hasKey) {
-                    throw new Error("请选择 API 密钥以生成高质量图片。");
-                }
-            }
-
-            // Create fresh instance to pick up potentially new key from dialog
-            const currentAi = useProModel ? new GoogleGenAI({ apiKey: process.env.API_KEY }) : ai;
+            // Ensure we have a client instance
+            const currentAi = getGenAI();
 
             const config: any = { 
                 imageConfig: { 
@@ -292,8 +298,8 @@ export const generateImagesFromPrompt = async (
             }
             return null;
         } catch (err: any) {
-            // Propagate the API key error explicitly
-            if (err.message.includes("请选择 API 密钥")) throw err;
+            // Propagate the API key error explicitly or Log
+            console.error(err);
             return null;
         }
     };
@@ -301,6 +307,7 @@ export const generateImagesFromPrompt = async (
     let images: string[] = [];
     let attempts = 0;
     
+    // Attempt generation
     while (images.length < numImages && attempts < 2) {
         const needed = numImages - images.length;
         const results = await Promise.all(Array(needed).fill(null).map(() => generateOne()));
@@ -308,21 +315,14 @@ export const generateImagesFromPrompt = async (
         attempts++;
     }
     
-    if (images.length === 0) throw new Error("图片生成失败。请检查提示词或 API 配额。");
+    if (images.length === 0) throw new Error("图片生成失败。请检查 API Key 配额或网络连接。");
     return images;
 };
 
 export const generateVideosFromPrompt = async (prompt: string, aspectRatio: string, resolution: '720p' | '1080p', onStatusUpdate?: StatusUpdateCallback): Promise<string> => {
     let targetRatio = aspectRatio === '9:16' ? '9:16' : '16:9';
     try {
-        const win = window as any;
-        if (win.aistudio && win.aistudio.hasSelectedApiKey) {
-            const hasKey = await win.aistudio.hasSelectedApiKey();
-            if (!hasKey) {
-                throw new Error("请选择 API 密钥以继续生成视频。");
-            }
-        }
-        const freshAi = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        const freshAi = getGenAI();
         let operation = await freshAi.models.generateVideos({
             model: 'veo-3.1-fast-generate-preview',
             prompt: prompt,
@@ -334,12 +334,16 @@ export const generateVideosFromPrompt = async (prompt: string, aspectRatio: stri
         }
         if (operation.error) throw new Error(`失败: ${operation.error.message}`);
         const videoUri = operation.response?.generatedVideos?.[0]?.video?.uri;
-        const response = await fetch(`${videoUri}&key=${process.env.API_KEY}`);
+        
+        // Append API Key manually for the fetch request
+        const apiKey = getApiKey();
+        const response = await fetch(`${videoUri}&key=${apiKey}`);
+        
         const blob = await response.blob();
         return URL.createObjectURL(blob);
     } catch (error: any) {
         if (error.message.includes("Requested entity was not found") || error.message.includes("请选择 API 密钥")) {
-            throw new Error("请选择 API 密钥以继续生成视频。");
+            throw new Error("视频生成需要有效的 API 密钥。");
         }
         throw error;
     }
@@ -347,6 +351,7 @@ export const generateVideosFromPrompt = async (prompt: string, aspectRatio: stri
 
 export const generateStoryFromPrompt = async (prompt: string, onStatusUpdate?: StatusUpdateCallback): Promise<string> => {
     try {
+        const ai = getGenAI();
         const response = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
             model: 'gemini-3-flash-preview',
             contents: `基于想法写个短篇故事: "${prompt}"`,
