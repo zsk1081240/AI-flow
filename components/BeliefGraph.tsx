@@ -1,4 +1,5 @@
 
+
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -19,6 +20,7 @@ interface BeliefGraphProps {
   setPendingRelationshipUpdates: React.Dispatch<React.SetStateAction<Record<string, string>>>;
   pendingClarificationCount: number;
   currentPrompt: string;
+  onAddEntity?: (name: string) => void;
 }
 
 const getHighestProbabilityValue = (attribute: Attribute): string => {
@@ -428,7 +430,8 @@ const BeliefGraph: React.FC<BeliefGraphProps> = ({
     pendingRelationshipUpdates,
     setPendingRelationshipUpdates,
     pendingClarificationCount,
-    currentPrompt
+    currentPrompt,
+    onAddEntity
 }) => {
   const [selectedEntity, setSelectedEntity] = useState<Entity | null>(null);
   const [activeCardTab, setActiveCardTab] = useState<'info' | 'style'>('info');
@@ -934,6 +937,16 @@ const BeliefGraph: React.FC<BeliefGraphProps> = ({
                     <button onClick={resetView} className="bg-white dark:bg-gray-700 p-2 rounded shadow text-gray-600 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600 focus:outline-none" title="重置视图">
                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" /></svg>
                     </button>
+                     {onAddEntity && (
+                        <button onClick={() => {
+                            const name = window.prompt("输入新实体名称:");
+                            if (name && name.trim()) onAddEntity(name.trim());
+                        }} className="bg-white dark:bg-gray-700 p-2 rounded shadow text-gray-600 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600 focus:outline-none" title="添加实体">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                            </svg>
+                        </button>
+                    )}
                 </div>
             )}
 
