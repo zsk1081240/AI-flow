@@ -30,8 +30,12 @@ const getBaseUrl = (): string | undefined => {
 const getGenAI = (): GoogleGenAI => {
     const apiKey = getApiKey();
     const baseUrl = getBaseUrl();
+    
+    // Log configuration status (without leaking full key)
+    console.debug(`[Gemini Config] Initializing. BaseURL: ${baseUrl || 'Default (Google)'}, Key Configured: ${!!apiKey}`);
+
     if (!apiKey) {
-        throw new Error("未找到 API 密钥。请点击左下角“管理 API 密钥”进行配置，或检查环境变量。");
+        throw new Error("未找到 API 密钥。请在侧边栏“设置”中配置您的 API Key。");
     }
     // Cast to any to allow baseUrl if strictly typed SDK definition is missing it
     return new GoogleGenAI({ apiKey, baseUrl } as any);
@@ -62,12 +66,20 @@ const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 const withRetry = async <T>(
   fn: () => Promise<T>,
   retries = 3,
-  initialDelay = 1500, // Increased initial delay
+  initialDelay = 1500, 
   onStatusUpdate?: StatusUpdateCallback,
-  actionName: string = "Request"
+  actionName: string = "Request",
+  debugInfo?: { model: string, method?: string }
 ): Promise<T> => {
   let lastError: any;
   let currentDelay = initialDelay;
+
+  // Construct and log the approximate request path for debugging
+  const baseUrl = getBaseUrl() || "https://generativelanguage.googleapis.com";
+  const apiMethod = debugInfo?.method || 'generateContent';
+  const requestPath = debugInfo ? `${baseUrl}/v1beta/models/${debugInfo.model}:${apiMethod}` : 'Unknown Endpoint';
+  
+  console.log(`%c[Gemini Request] %c${requestPath}`, "color: #8b5cf6; font-weight: bold;", "color: inherit;");
 
   for (let i = 0; i < retries; i++) {
     try {
@@ -75,6 +87,15 @@ const withRetry = async <T>(
     } catch (error: any) {
       lastError = error;
       const errorMessage = error?.message || JSON.stringify(error);
+      
+      console.group(`[Gemini Error] Request Failed: ${actionName}`);
+      console.error(`Target: ${requestPath}`);
+      console.error(`Attempt: ${i + 1}/${retries}`);
+      console.error(`Reason:`, errorMessage);
+      if (error?.response) {
+          console.error(`Response Status:`, error.response.status);
+      }
+      console.groupEnd();
       
       // Check for specific quota exhaustion
       if (errorMessage.includes("RESOURCE_EXHAUSTED") || errorMessage.includes("429")) {
@@ -87,7 +108,7 @@ const withRetry = async <T>(
         }
         
         await delay(currentDelay);
-        currentDelay = currentDelay * 2.5 + Math.floor(Math.random() * 1000); // More aggressive backoff for 429s
+        currentDelay = currentDelay * 2.5 + Math.floor(Math.random() * 1000); 
         continue;
       }
 
@@ -137,8 +158,9 @@ export const parsePromptToBeliefGraph = async (prompt: string, mode: 'image' | '
 
     try {
         const ai = getGenAI();
+        const model = 'gemini-3-flash-preview';
         const response = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
-            model: 'gemini-3-flash-preview', // Upgraded for better stability
+            model: model, 
             contents: generationPrompt,
             config: {
                 responseMimeType: "application/json",
@@ -151,7 +173,7 @@ export const parsePromptToBeliefGraph = async (prompt: string, mode: 'image' | '
                     required: ['entities', 'relationships']
                 }
             }
-        }), 4, 2000, onStatusUpdate, "Belief Graph Generation");
+        }), 4, 2000, onStatusUpdate, "Belief Graph Generation", { model });
 
         const rawGraph = JSON.parse(response.text);
         const entities = rawGraph.entities.map((e: any) => ({
@@ -169,7 +191,7 @@ export const parsePromptToBeliefGraph = async (prompt: string, mode: 'image' | '
         return { entities, relationships, prompt };
     } catch (error) {
         console.error("Error generating belief graph:", error);
-        throw error; // Propagate error so UI can show it
+        throw error; 
     }
 };
 
@@ -185,8 +207,9 @@ export const generateClarifications = async (prompt: string, askedQuestions: str
 
     try {
         const ai = getGenAI();
+        const model = 'gemini-3-flash-preview';
         const response = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
-            model: 'gemini-3-flash-preview', // Upgraded for better stability
+            model: model,
             contents: finalPrompt,
             config: {
                 responseMimeType: "application/json",
@@ -202,11 +225,11 @@ export const generateClarifications = async (prompt: string, askedQuestions: str
                     },
                 },
             },
-        }), 4, 2000, onStatusUpdate, "Clarification Generation"); 
+        }), 4, 2000, onStatusUpdate, "Clarification Generation", { model }); 
         return JSON.parse(response.text) as Clarification[];
     } catch (error) {
         console.error("Error generating clarifications:", error);
-        throw error; // Propagate error
+        throw error; 
     }
 };
 
@@ -231,10 +254,11 @@ export const refinePromptWithAllUpdates = async (
   
     try {
       const ai = getGenAI();
+      const model = 'gemini-3-flash-preview';
       const response = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
+        model: model,
         contents: prompt,
-      }), 3, 1000, onStatusUpdate, "Prompt Refinement");
+      }), 3, 1000, onStatusUpdate, "Prompt Refinement", { model });
       return response.text;
     } catch (error) {
       return originalPrompt;
@@ -298,7 +322,7 @@ export const generateImagesFromPrompt = async (
                 model: modelName,
                 contents: { parts: parts },
                 config: config
-            }), 3, 2000, onStatusUpdate, "Image Generation");
+            }), 3, 2000, onStatusUpdate, "Image Generation", { model: modelName });
             
             if (!response.candidates?.[0]?.content?.parts) return null;
 
@@ -332,8 +356,11 @@ export const generateVideosFromPrompt = async (prompt: string, aspectRatio: stri
     let targetRatio = aspectRatio === '9:16' ? '9:16' : '16:9';
     try {
         const freshAi = getGenAI();
+        const model = 'veo-3.1-fast-generate-preview';
+        console.log(`%c[Gemini Request] %c${getBaseUrl() || "Default"}/v1beta/models/${model}:generateVideos`, "color: #8b5cf6; font-weight: bold;", "color: inherit;");
+        
         let operation = await freshAi.models.generateVideos({
-            model: 'veo-3.1-fast-generate-preview',
+            model: model,
             prompt: prompt,
             config: { numberOfVideos: 1, resolution: resolution, aspectRatio: targetRatio }
         });
@@ -351,6 +378,7 @@ export const generateVideosFromPrompt = async (prompt: string, aspectRatio: stri
         const blob = await response.blob();
         return URL.createObjectURL(blob);
     } catch (error: any) {
+        console.error(`[Gemini Error] Video Generation Failed:`, error);
         if (error.message.includes("Requested entity was not found") || error.message.includes("请选择 API 密钥")) {
             throw new Error("视频生成需要有效的 API 密钥。");
         }
@@ -361,11 +389,12 @@ export const generateVideosFromPrompt = async (prompt: string, aspectRatio: stri
 export const generateStoryFromPrompt = async (prompt: string, onStatusUpdate?: StatusUpdateCallback): Promise<string> => {
     try {
         const ai = getGenAI();
+        const model = 'gemini-3-flash-preview';
         const response = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
+            model: model,
             contents: `基于想法写个短篇故事: "${prompt}"`,
             config: { temperature: 0.8 }
-        }), 3, 1000, onStatusUpdate, "Story Generation");
+        }), 3, 1000, onStatusUpdate, "Story Generation", { model });
         return response.text;
     } catch (error) {
         throw error;
