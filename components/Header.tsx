@@ -9,10 +9,9 @@ import React from 'react';
 interface HeaderProps {
     isDarkMode: boolean;
     toggleDarkMode: () => void;
-    onShowInfo: () => void;
 }
 
-const Header: React.FC<HeaderProps> = ({ isDarkMode, toggleDarkMode, onShowInfo }) => {
+const Header: React.FC<HeaderProps> = ({ isDarkMode, toggleDarkMode }) => {
   return (
     <header className="bg-ai-dark/80 backdrop-blur-md p-4 relative flex justify-between items-center border-b border-ai-border z-20 h-16">
       {/* Left side spacer to balance the flex layout */}
@@ -44,15 +43,7 @@ const Header: React.FC<HeaderProps> = ({ isDarkMode, toggleDarkMode, onShowInfo 
 
       {/* Right side controls */}
       <div className="flex items-center gap-3">
-        <button
-          onClick={onShowInfo}
-          className="text-gray-400 hover:text-white transition-colors p-2 hover:bg-white/5 rounded-lg"
-          title="关于"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-        </button>
+        {/* About button removed */}
       </div>
     </header>
   );

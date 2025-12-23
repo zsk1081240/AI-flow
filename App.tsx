@@ -43,7 +43,7 @@ function App() {
   
   const [isOutdated, setIsOutdated] = useState(false); 
   const [showModeChangePopup, setShowModeChangePopup] = useState(false);
-  const [showInfoModal, setShowInfoModal] = useState(false);
+  // Info modal state removed
   const [mode, setMode] = useState<Mode>('image');
   
   const modeRef = useRef<Mode>(mode);
@@ -391,7 +391,6 @@ function App() {
         <Header 
             isDarkMode={isDarkMode} 
             toggleDarkMode={() => setIsDarkMode(!isDarkMode)} 
-            onShowInfo={() => setShowInfoModal(true)}
         />
 
         {statusNotification && (
@@ -570,27 +569,6 @@ function App() {
                 <span className="text-[10px] font-bold uppercase tracking-wide">预览</span>
             </button>
         </div>
-
-        {/* Info Modal */}
-        {showInfoModal && (
-          <div className="fixed inset-0 z-[3000] bg-black/80 flex items-center justify-center p-4 backdrop-blur-md animate-fade-in" onClick={() => setShowInfoModal(false)}>
-            <div className="bg-ai-card rounded-2xl shadow-2xl max-w-lg w-full p-6 relative border border-ai-border" onClick={e => e.stopPropagation()}>
-              <button onClick={() => setShowInfoModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white"><svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
-              <div className="text-center mb-6">
-                 <h2 className="text-2xl font-bold text-white mb-2">主动共创助手</h2>
-                 <p className="text-gray-400">感谢使用我们的应用！</p>
-              </div>
-              <div className="grid gap-4">
-                  <a href="https://zi-wang.com/co-creator-feedback" target="_blank" rel="noopener noreferrer" className="flex items-center justify-between p-4 rounded-xl bg-ai-dark border border-ai-border hover:border-ai-accent transition-all group">
-                      <div className="flex items-center gap-3">
-                          <div className="bg-ai-accent/10 p-2 rounded-full text-ai-accent"><svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" /></svg></div>
-                          <div className="text-left"><h3 className="font-semibold text-white">提供反馈</h3><p className="text-sm text-gray-500">帮助我们改进体验</p></div>
-                      </div>
-                  </a>
-              </div>
-            </div>
-          </div>
-        )}
 
         {showModeChangePopup && (
             <div className="fixed bottom-4 right-4 z-[2000] animate-fade-in-up max-w-sm w-full mx-auto px-4 sm:px-0">
