@@ -1,4 +1,5 @@
 
+
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -96,6 +97,7 @@ export const TemplateSidebar: React.FC<TemplateSidebarProps> = ({
   const [formTitle, setFormTitle] = useState('');
   const [formContent, setFormContent] = useState('');
   const [hasCustomKey, setHasCustomKey] = useState(false);
+  const [baseUrl, setBaseUrl] = useState('');
 
   useEffect(() => {
     const saved = localStorage.getItem('prompt_templates');
@@ -110,6 +112,7 @@ export const TemplateSidebar: React.FC<TemplateSidebarProps> = ({
     if (localStorage.getItem('gemini_api_key')) {
         setHasCustomKey(true);
     }
+    setBaseUrl(localStorage.getItem('gemini_base_url') || '');
   }, []);
 
   useEffect(() => {
@@ -316,7 +319,26 @@ export const TemplateSidebar: React.FC<TemplateSidebarProps> = ({
                             </div>
                         )}
 
-                        <div className="pt-2 border-t border-ai-border/50">
+                        <div className="pt-2 border-t border-ai-border/50 space-y-3">
+                            <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">连接设置</h3>
+                            
+                            <div className="space-y-1">
+                                <label className="text-[10px] text-gray-400">自定义域名 (Base URL)</label>
+                                <input 
+                                    type="text" 
+                                    value={baseUrl}
+                                    onChange={(e) => {
+                                        setBaseUrl(e.target.value);
+                                        localStorage.setItem('gemini_base_url', e.target.value);
+                                    }}
+                                    placeholder="https://generativelanguage.googleapis.com"
+                                    className="w-full text-xs bg-ai-dark border border-ai-border rounded-lg p-2 text-gray-200 outline-none focus:border-ai-accent placeholder-gray-600"
+                                />
+                                <p className="text-[9px] text-gray-500">
+                                    若需使用代理，请输入完整的 Base URL。留空则使用默认 Google 服务器。
+                                </p>
+                            </div>
+
                             <button 
                                 onClick={handleManageApiKey}
                                 className={`w-full text-xs border py-2 rounded-lg transition-colors flex items-center justify-center gap-2 ${

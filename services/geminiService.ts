@@ -1,4 +1,5 @@
 
+
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -19,13 +20,21 @@ const getApiKey = (): string => {
     return process.env.API_KEY || "";
 };
 
+// Helper to retrieve Base URL dynamically
+const getBaseUrl = (): string | undefined => {
+    const url = localStorage.getItem('gemini_base_url');
+    return url && url.trim().length > 0 ? url.trim() : undefined;
+};
+
 // Helper to get an authenticated AI client instance
 const getGenAI = (): GoogleGenAI => {
     const apiKey = getApiKey();
+    const baseUrl = getBaseUrl();
     if (!apiKey) {
         throw new Error("未找到 API 密钥。请点击左下角“管理 API 密钥”进行配置，或检查环境变量。");
     }
-    return new GoogleGenAI({ apiKey });
+    // Cast to any to allow baseUrl if strictly typed SDK definition is missing it
+    return new GoogleGenAI({ apiKey, baseUrl } as any);
 };
 
 const isRetryableError = (error: any): boolean => {
