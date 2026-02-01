@@ -4,36 +4,56 @@
  * SPDX-License-Identifier: Apache-2.0
 */
 
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import Header from './components/Header';
-import PromptInput from './components/PromptInput';
+import PromptInput, { PromptInputHandle } from './components/PromptInput';
 import ClarificationCard from './components/ClarificationCard';
 import BeliefGraph from './components/BeliefGraph';
-import OutputDisplay from './components/OutputGallery';
+import PoseReferenceCard from './components/PoseReferenceCard';
 import { TemplateSidebar } from './components/TemplateSidebar';
-import { HandDrawnClapper, HandDrawnNodes, HandDrawnSettings } from './components/icons';
+import CanvasWorkspace from './components/CanvasWorkspace';
+import DraggableNode from './components/DraggableNode';
+import { ImageResultNode, VideoResultNode, AudioResultNode, TextResultNode, BatchGroupNode } from './components/ResultNodes';
+import { HandDrawnNodes, HandDrawnPen, HandDrawnNote, HandDrawnPalette, HandDrawnCamera, HandDrawnReel, HandDrawnFilmStrip, HandDrawnBookOpen } from './components/icons';
+import BatchActionBar from './components/BatchActionBar';
 import {
   parsePromptToBeliefGraph,
   generateClarifications,
   generateImagesFromPrompt,
   generateStoryFromPrompt,
+  generateComicScript,
   generateVideosFromPrompt,
+  generateSmartMultiFrameVideo,
+  generateSpeech,
+  generateMusicScore,
   refinePromptWithAllUpdates,
 } from './services/geminiService';
-import { BeliefState, Clarification, GraphUpdate, Attribute, ImageGenerationItem, Entity } from './types';
-
-type Mode = 'image' | 'story' | 'video' | 'image-to-image';
-type ToolTab = 'clarify' | 'graph' | 'attributes';
-type MobileView = 'editor' | 'preview';
+import { BeliefState, Clarification, GraphUpdate, Mode, GenerationBatch, GenerationSettings, NodeConnection, ImageGenerationItem } from './types';
 
 function App() {
   const [prompt, setPrompt] = useState('一只猫正在为它的动物朋友们举办派对');
-  const [aspectRatio, setAspectRatio] = useState('1:1');
-  const [resolution, setResolution] = useState<'720p' | '1080p'>('720p');
-  const [imageCount, setImageCount] = useState<number>(4);
-  const [imageStyle, setImageStyle] = useState<string>('none');
-  const [imageSize, setImageSize] = useState<'1K' | '2K' | '4K'>('1K');
-  const [referenceImages, setReferenceImages] = useState<string[]>([]);
+  const [audioText, setAudioText] = useState('你好，欢迎来到 HZ-AI Studio。');
+  
+  // Consolidated Generation Settings
+  const [genSettings, setGenSettings] = useState<GenerationSettings>({
+      aspectRatio: '1:1',
+      resolution: '720p',
+      imageCount: 4,
+      imageStyle: 'none',
+      imageSize: '1K',
+      negativePrompt: '',
+      cameraDetail: '',
+      audioVoice: 'Puck',
+      audioMode: 'speech',
+      musicStyle: 'Cinematic',
+      referenceImages: []
+  });
+
+  const [analysisModel, setAnalysisModel] = useState<string>('gemini-3-pro-preview');
+
+  const updateSettings = useCallback((updates: Partial<GenerationSettings>) => {
+      setGenSettings(prev => ({ ...prev, ...updates }));
+  }, []);
   
   const [isGraphLoading, setIsGraphLoading] = useState(false);
   const [isAttributesLoading, setIsAttributesLoading] = useState(false);
@@ -41,22 +61,50 @@ function App() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isUpdatingPrompt, setIsUpdatingPrompt] = useState(false);
   
-  const [isOutdated, setIsOutdated] = useState(false); 
-  const [showModeChangePopup, setShowModeChangePopup] = useState(false);
-  // Info modal state removed
   const [mode, setMode] = useState<Mode>('image');
+  const [batches, setBatches] = useState<GenerationBatch[]>([]);
+  const [nodeOverrides, setNodeOverrides] = useState<Record<string, {x: number, y: number}>>({});
   
+  // Node Links & Locks & Clipboard
+  const [connections, setConnections] = useState<NodeConnection[]>([]);
+  const [lockedNodeIds, setLockedNodeIds] = useState<Set<string>>(new Set(['creation-center', 'analysis-center']));
+  const [clipboard, setClipboard] = useState<any | null>(null);
+  const [connectingSourceId, setConnectingSourceId] = useState<string | null>(null);
+
+  // Expanded Node Management
+  const [expandedNodeId, setExpandedNodeId] = useState<string | null>(null);
+
+  // Context Menu State
+  const [contextMenu, setContextMenu] = useState<{ x: number, y: number, canvasX: number, canvasY: number, sourceNodeId?: string, type: 'canvas' | 'node-handle' | 'node' } | null>(null);
+
+  // Z-Index Management: Stores order of node IDs. Last is on top.
+  const [nodeOrder, setNodeOrder] = useState<string[]>(['creation-center', 'analysis-center']);
+
+  const bringToFront = (id: string) => {
+      setNodeOrder(prev => {
+          const filtered = prev.filter(n => n !== id);
+          return [...filtered, id];
+      });
+  };
+
+  const getZIndex = (id: string) => {
+      // If expanded, always be on top
+      if (id === expandedNodeId) return 1000;
+      const idx = nodeOrder.indexOf(id);
+      return idx === -1 ? 10 : 10 + idx; 
+  };
+
+  const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
+  const itemPositionsRef = useRef<Record<string, {x: number, y: number}>>({});
+
   const modeRef = useRef<Mode>(mode);
+  const promptInputRef = useRef<PromptInputHandle>(null);
+  
+  // Use timestamps for IDs to ensure uniqueness and order
   const analysisRequestIdRef = useRef(0);
   const generationRequestIdRef = useRef(0);
 
-  const [imageHistory, setImageHistory] = useState<ImageGenerationItem[]>([]);
-  const [story, setStory] = useState<string | null>(null);
-  const [video, setVideo] = useState<string | null>(null);
-  
-  const [galleryErrors, setGalleryErrors] = useState<Record<Mode, string | null>>({ image: null, story: null, video: null, 'image-to-image': null });
   const [requiresApiKey, setRequiresApiKey] = useState(false);
-  
   const [beliefGraph, setBeliefGraph] = useState<BeliefState | null>(null);
   const [clarifications, setClarifications] = useState<Clarification[]>([]);
   const [answeredQuestions, setAnsweredQuestions] = useState<string[]>([]);
@@ -70,272 +118,175 @@ function App() {
   const [pendingRelationshipUpdates, setPendingRelationshipUpdates] = useState<Record<string, string>>({});
   const [pendingClarificationAnswers, setPendingClarificationAnswers] = useState<{[key: string]: string}>({});
   
-  const [activeToolTab, setActiveToolTab] = useState<ToolTab>('clarify');
-  const [mobileView, setMobileView] = useState<MobileView>('editor');
-
-  const [isDarkMode, setIsDarkMode] = useState(true); // Default to Dark
+  const [activeAnalysisView, setActiveAnalysisView] = useState<'graph' | 'clarify' | 'attributes' | 'pose'>('graph');
+  const [isDarkMode, setIsDarkMode] = useState(true); 
   const [statusNotification, setStatusNotification] = useState<string | null>(null);
+  const [lightboxImage, setLightboxImage] = useState<string | null>(null);
+
+  useEffect(() => { modeRef.current = mode; }, [mode]);
+  useEffect(() => { document.documentElement.classList.toggle('dark', isDarkMode); }, [isDarkMode]);
 
   useEffect(() => {
-    if (isGenerating) {
-        setMobileView('preview');
-    }
-  }, [isGenerating]);
-
-  useEffect(() => {
-    modeRef.current = mode;
-  }, [mode]);
-
-  useEffect(() => {
-      // Enforce dark mode class on HTML element for this style
-      document.documentElement.classList.add('dark');
-      if (!isDarkMode) {
-          document.documentElement.classList.remove('dark');
-      }
-  }, [isDarkMode]);
-
-  const clearPendingUpdates = () => {
-    setPendingAttributeUpdates({});
-    setPendingRelationshipUpdates({});
-    setPendingClarificationAnswers({});
-  };
+      const handleClick = () => setContextMenu(null);
+      window.addEventListener('click', handleClick);
+      return () => window.removeEventListener('click', handleClick);
+  }, []);
 
   const handleStatusUpdate = useCallback((msg: string) => {
-    setStatusNotification(msg);
+      setStatusNotification(msg);
+      // Auto clear after 5 seconds
+      setTimeout(() => setStatusNotification(prev => prev === msg ? null : prev), 5000);
   }, []);
 
   const handleModeChange = (newMode: Mode) => {
     if (newMode === mode) return;
+    // Increment request IDs to invalidate pending async operations from previous mode
     analysisRequestIdRef.current += 1;
     generationRequestIdRef.current += 1;
+    
     setMode(newMode);
-    setIsGraphLoading(false);
-    setIsAttributesLoading(false);
-    setIsClarificationsLoading(false);
-    setIsGenerating(false);
-    setIsUpdatingPrompt(false);
-    setShowModeChangePopup(true);
     setRequiresApiKey(false); 
+    if (newMode !== 'audio' && prompt === '一只猫正在为它的动物朋友们举办派对') setPrompt(''); 
   };
 
-  const refreshAnalysis = useCallback(async (currentPrompt: string, currentAnsweredQuestions: string[], currentMode: Mode) => {
-    const requestId = ++analysisRequestIdRef.current;
-    const isCurrent = () => modeRef.current === currentMode && analysisRequestIdRef.current === requestId;
-    const safeStatusUpdate = (msg: string) => { if (isCurrent()) handleStatusUpdate(msg); };
+  const handleUpdateTextInBatch = (batchId: string, itemId: string, newContent: string) => {
+      setBatches(prev => prev.map(b => b.id === batchId ? { ...b, items: b.items.map(i => i.id === itemId ? { ...i, content: newContent } : i) } : b));
+  };
 
-    setIsGraphLoading(true);
-    setIsAttributesLoading(true);
-    setIsClarificationsLoading(true);
+  const handleUpdateImageScript = (batchId: string, itemId: string, imgIndex: number, text: string) => {
+      setBatches(prev => prev.map(b => b.id === batchId ? {
+          ...b,
+          items: b.items.map(i => {
+              if (i.id === itemId && (b.mode === 'image' || b.mode === 'image-to-image')) {
+                  const item = i as ImageGenerationItem;
+                  return {
+                      ...item,
+                      scripts: { ...(item.scripts || {}), [imgIndex]: text }
+                  };
+              }
+              return i;
+          })
+      } : b));
+  };
 
-    const graphPromise = parsePromptToBeliefGraph(currentPrompt, currentMode, safeStatusUpdate)
-        .then(graphStructure => {
-            if (isCurrent()) {
-                if (graphStructure) setBeliefGraph(graphStructure);
-            }
-        })
-        .catch(error => {
-            console.error("Failed to parse belief graph:", error);
-        })
-        .finally(() => {
-            if (isCurrent()) {
-                setIsGraphLoading(false);
-                setIsAttributesLoading(false);
-            }
-        });
+  const handleRemoveItem = (batchId: string, itemId: string) => {
+    setBatches(prev => prev.map(b => b.id === batchId ? { ...b, items: b.items.filter(i => i.id !== itemId) } : b).filter(b => b.items.length > 0));
+    setSelectedItemIds(prev => { const next = new Set(prev); next.delete(itemId); return next; });
+    if (expandedNodeId === itemId) setExpandedNodeId(null);
+    setConnections(prev => prev.filter(c => c.sourceId !== itemId && c.targetId !== itemId));
+  };
 
-    const clarificationPromise = generateClarifications(currentPrompt, currentAnsweredQuestions, currentMode, safeStatusUpdate)
-        .then(generatedClarifications => {
-            if (isCurrent()) setClarifications(generatedClarifications);
-        })
-        .catch(error => {
-            console.error("Failed to generate clarifications:", error);
-        })
-        .finally(() => {
-             if (isCurrent()) setIsClarificationsLoading(false);
-        });
-
-    if (isCurrent()) {
-         setLastAnalyzedPrompt(currentPrompt);
-         setLastAnalyzedMode(currentMode);
+  const handleSelectNode = (itemId: string, multi: boolean) => {
+    // If we are in connecting mode and click a different node, create connection
+    if (connectingSourceId && connectingSourceId !== itemId) {
+        setConnections(prev => [...prev, {
+            id: `link-${Date.now()}`,
+            sourceId: connectingSourceId,
+            targetId: itemId
+        }]);
+        setConnectingSourceId(null);
+        handleStatusUpdate("已建立连接");
+        return;
     }
     
-    return Promise.all([graphPromise, clarificationPromise]);
-  }, [handleStatusUpdate]);
+    // Clear connecting mode if we just clicked normally without selecting a target
+    if (connectingSourceId) setConnectingSourceId(null);
 
-  const handleRefreshClarifications = useCallback(() => {
-    const requestId = ++analysisRequestIdRef.current;
-    const requestMode = mode;
-    const isCurrent = () => modeRef.current === requestMode && analysisRequestIdRef.current === requestId;
-    const safeStatusUpdate = (msg: string) => { if (isCurrent()) handleStatusUpdate(msg); };
-
-    setIsClarificationsLoading(true);
-    setPendingClarificationAnswers({});
-    setStatusNotification(null);
-    
-    const currentQuestions = clarifications.map(c => c.question);
-    const newSkipped = [...skippedQuestions, ...currentQuestions];
-    setSkippedQuestions(newSkipped);
-
-    const currentPrompt = prompt;
-    const excludeList = [...answeredQuestions, ...newSkipped];
-
-    generateClarifications(currentPrompt, excludeList, requestMode, safeStatusUpdate)
-        .then(newClarifications => {
-            if (isCurrent()) setClarifications(newClarifications);
-        })
-        .catch(error => console.error("Failed to refresh clarifications:", error))
-        .finally(() => {
-             if (isCurrent()) {
-                 setIsClarificationsLoading(false);
-                 setStatusNotification(null);
-             }
-        });
-  }, [prompt, answeredQuestions, mode, clarifications, skippedQuestions, handleStatusUpdate]);
-
-  const processRequest = useCallback(async (
-    currentPrompt: string, 
-    currentAnsweredQuestions: string[], 
-    currentMode: Mode,
-    skipAnalysis: boolean = false,
-    skipGeneration: boolean = false
-  ) => {
-    const genRequestId = ++generationRequestIdRef.current;
-    const requestMode = currentMode;
-    const isGenCurrent = () => modeRef.current === requestMode && generationRequestIdRef.current === genRequestId;
-    const safeGenStatusUpdate = (msg: string) => { if (isGenCurrent()) handleStatusUpdate(msg); };
-
-    setGalleryErrors(prev => ({ ...prev, [requestMode]: null }));
-    setRequiresApiKey(false);
-
-    if (!skipGeneration) {
-        if (requestMode === 'story') setStory(null);
-        else if (requestMode === 'video') setVideo(null);
-    }
-    
-    setIsOutdated(false); 
-    setStatusNotification(null);
-    setShowModeChangePopup(false);
-    
-    if (!skipAnalysis) {
-        setBeliefGraph(null); 
-        setClarifications([]);
-        clearPendingUpdates();
-        setSkippedQuestions([]); 
-    }
-    
-    const analysisPromise = !skipAnalysis 
-        ? refreshAnalysis(currentPrompt, currentAnsweredQuestions, currentMode)
-        : Promise.resolve();
-
-    let generationPromise = Promise.resolve();
-
-    if (!skipGeneration) {
-        setIsGenerating(true);
-        generationPromise = (async () => {
-            try {
-                if (requestMode === 'image' || requestMode === 'image-to-image') {
-                    const refs = requestMode === 'image-to-image' ? referenceImages : [];
-                    const generatedImages = await generateImagesFromPrompt(currentPrompt, aspectRatio, refs, imageCount, imageStyle, imageSize, safeGenStatusUpdate);
-                    if (isGenCurrent()) {
-                        const newItem: ImageGenerationItem = {
-                            id: Date.now().toString(),
-                            timestamp: Date.now(),
-                            prompt: currentPrompt,
-                            aspectRatio: aspectRatio,
-                            images: generatedImages,
-                            referenceImages: refs.length > 0 ? refs : undefined
-                        };
-                        setImageHistory(prev => [newItem, ...prev]);
-                    }
-                } else if (requestMode === 'story') {
-                    const generatedStory = await generateStoryFromPrompt(currentPrompt, safeGenStatusUpdate);
-                    if (isGenCurrent()) setStory(generatedStory);
-                } else if (requestMode === 'video') {
-                    const generatedVideo = await generateVideosFromPrompt(currentPrompt, aspectRatio, resolution, safeGenStatusUpdate);
-                    if (isGenCurrent()) setVideo(generatedVideo);
-                }
-            } catch (error: any) {
-                if (isGenCurrent()) {
-                    console.error(`${requestMode} generation failed:`, error);
-                    const message = error?.error?.message || error.message || `${requestMode} 生成过程中发生未知错误。`;
-                    if (message.includes("请选择 API 密钥")) {
-                         setRequiresApiKey(true);
-                    } else {
-                         setGalleryErrors(prev => ({ ...prev, [requestMode]: message }));
-                    }
-                }
-            } finally {
-                if (isGenCurrent()) {
-                    setIsGenerating(false);
-                    setStatusNotification(null);
-                }
-            }
-        })();
-    }
-
-    await Promise.all([analysisPromise, generationPromise]).finally(() => {
-        if (isGenCurrent() && !isGenerating) setStatusNotification(null);
+    bringToFront(itemId);
+    setSelectedItemIds(prev => {
+      const next = new Set(multi ? prev : []);
+      if (next.has(itemId)) next.delete(itemId); else next.add(itemId);
+      return next;
     });
+  };
 
-  }, [refreshAnalysis, handleStatusUpdate, aspectRatio, resolution, referenceImages, imageCount, imageStyle, imageSize]);
-
-  const handlePromptSubmit = useCallback(() => {
-    setHasGenerated(true);
-    const shouldSkipAnalysis = prompt === lastAnalyzedPrompt && mode === lastAnalyzedMode;
-    if (shouldSkipAnalysis) {
-        processRequest(prompt, answeredQuestions, mode, true, false);
-    } else {
-        const newAnsweredQuestions: string[] = [];
-        setAnsweredQuestions(newAnsweredQuestions);
-        setClarifications([]); 
-        processRequest(prompt, newAnsweredQuestions, mode, false, false);
-    }
-  }, [prompt, mode, lastAnalyzedPrompt, lastAnalyzedMode, answeredQuestions, processRequest]);
-
-  const handleAnalyzeOnly = useCallback(() => {
-     const newAnsweredQuestions: string[] = [];
-     setAnsweredQuestions(newAnsweredQuestions);
-     setClarifications([]);
-     processRequest(prompt, newAnsweredQuestions, mode, false, true);
-  }, [prompt, mode, processRequest]);
-
-  const handleSelectApiKey = async () => {
-      const win = window as any;
-      if (win.aistudio && win.aistudio.openSelectKey) {
-          await win.aistudio.openSelectKey();
-          if (requiresApiKey) {
-             setRequiresApiKey(false);
-          }
+  const handleSelectionEnd = (rect: { x: number, y: number, width: number, height: number }) => {
+    const newlySelected = new Set<string>();
+    document.querySelectorAll('[data-node-id]').forEach((el) => {
+      const id = el.getAttribute('data-node-id');
+      const pos = id ? itemPositionsRef.current[id] : null;
+      if (pos && pos.x < rect.x + rect.width && pos.x + el.clientWidth > rect.x && pos.y < rect.y + rect.height && pos.y + el.clientHeight > rect.y) {
+        newlySelected.add(id!);
       }
+    });
+    setSelectedItemIds(newlySelected.size > 0 ? newlySelected : new Set());
   };
 
-  const handleAddEntity = (name: string) => {
-    setBeliefGraph(prev => {
-        if (!prev) return prev;
-        if (prev.entities.some(e => e.name === name)) {
-            handleStatusUpdate(`实体 "${name}" 已存在。`);
-            return prev;
-        }
-        const newEntity: Entity = {
-            name,
-            presence_in_prompt: false,
-            description: '用户自定义添加的新实体。',
-            alternatives: [],
-            attributes: [{ name: 'existence', presence_in_prompt: false, value: [{ name: 'true' }, { name: 'false' }] }]
-        };
-        return { ...prev, entities: [...prev.entities, newEntity] };
-    });
+  const handleBackgroundClick = () => {
+      setSelectedItemIds(new Set());
+      setExpandedNodeId(null); // Collapse any expanded node
+      setConnectingSourceId(null);
+      setLightboxImage(null); // Close lightbox
+  };
+
+  const handleManualGroup = () => {
+    if (selectedItemIds.size < 2) return;
+    let items: any[] = [];
+    batches.forEach(b => { items = [...items, ...b.items.filter(i => selectedItemIds.has(i.id))]; });
+    if (items.length === 0) return;
+    const newBatch: GenerationBatch = { id: `batch-manual-${Date.now()}`, timestamp: Date.now(), mode: 'image', prompt: "手动合并的分组", isExpanded: true, items };
+    setBatches(prev => [newBatch, ...prev.map(b => ({ ...b, items: b.items.filter(i => !selectedItemIds.has(i.id)) })).filter(b => b.items.length > 0)]);
+    setSelectedItemIds(new Set());
+    handleStatusUpdate("已将选中项手动成组");
+  };
+
+  const handleBatchAction = (action: 'align-left' | 'align-top' | 'distribute-grid' | 'group' | 'delete') => {
+      if (action === 'group') {
+          handleManualGroup();
+          return;
+      }
+      
+      const selectedIds = Array.from(selectedItemIds);
+      if (action === 'delete') {
+          if (window.confirm(`确定要删除选中的 ${selectedIds.length} 个节点吗？`)) {
+             setBatches(prev => prev.map(b => ({ ...b, items: b.items.filter(i => !selectedItemIds.has(i.id)) })).filter(b => b.items.length > 0));
+             setConnections(prev => prev.filter(c => !selectedItemIds.has(c.sourceId) && !selectedItemIds.has(c.targetId)));
+             setSelectedItemIds(new Set());
+          }
+          return;
+      }
+
+      if (selectedIds.length < 2) return;
+
+      const positions = selectedIds.map(id => ({ id, ...itemPositionsRef.current[id] })).filter(p => p.x !== undefined);
+      if (positions.length === 0) return;
+
+      const newOverrides = { ...nodeOverrides };
+
+      if (action === 'align-left') {
+          const minX = Math.min(...positions.map(p => p.x));
+          positions.forEach(p => { newOverrides[p.id] = { x: minX, y: p.y }; });
+          handleStatusUpdate("已左对齐");
+      } else if (action === 'align-top') {
+          const minY = Math.min(...positions.map(p => p.y));
+          positions.forEach(p => { newOverrides[p.id] = { x: p.x, y: minY }; });
+          handleStatusUpdate("已顶对齐");
+      } else if (action === 'distribute-grid') {
+          const startX = Math.min(...positions.map(p => p.x));
+          const startY = Math.min(...positions.map(p => p.y));
+          const cols = Math.ceil(Math.sqrt(positions.length));
+          const gap = 40;
+          const cellW = 320; 
+          const cellH = 320; 
+          positions.forEach((p, idx) => {
+              const row = Math.floor(idx / cols);
+              const col = idx % cols;
+              newOverrides[p.id] = { x: startX + col * (cellW + gap), y: startY + row * (cellH + gap) };
+          });
+          handleStatusUpdate("已排列为网格");
+      }
+      setNodeOverrides(newOverrides);
+  };
+
+  const handleApplyPose = (posePrompt: string) => {
+    const current = prompt.trim();
+    setPrompt(current.toLowerCase().includes('pose:') ? current.replace(/pose:.*$/i, `Pose: ${posePrompt}`) : `${current}, Pose: ${posePrompt}`);
   };
 
   const handleApplyAllUpdates = async () => {
     if (isUpdatingPrompt) return;
-    const requestMode = mode;
-    const isCurrent = () => modeRef.current === requestMode;
-    const safeStatusUpdate = (msg: string) => { if (isCurrent()) handleStatusUpdate(msg); };
     setIsUpdatingPrompt(true);
-    setStatusNotification(null);
-
-    const qaPairs: {question: string, answer: string}[] = Object.entries(pendingClarificationAnswers).map(([q, a]) => ({question: q, answer: a as string}));
+    const qaPairs = Object.entries(pendingClarificationAnswers).map(([q, a]) => ({ question: q, answer: a as string }));
     const graphUpdates: GraphUpdate[] = [];
     Object.entries(pendingAttributeUpdates).forEach(([key, value]) => {
         const [entity, attribute] = key.split(':');
@@ -343,247 +294,539 @@ function App() {
     });
     Object.entries(pendingRelationshipUpdates).forEach(([key, value]) => {
         const [source, target] = key.split(':');
-        const originalRel = beliefGraph?.relationships.find(r => r.source === source && r.target === target);
-        if (originalRel) {
-            graphUpdates.push({ type: 'relationship', source, target, oldLabel: originalRel.label, newLabel: value as string });
-        }
+        graphUpdates.push({ type: 'relationship', source, target, oldLabel: '', newLabel: value as string });
     });
-
-    const newAnsweredQuestions = [...answeredQuestions, ...qaPairs.map(a => a.question)];
-    setAnsweredQuestions(newAnsweredQuestions);
-
     try {
-        const newRefinedPrompt = await refinePromptWithAllUpdates(prompt, qaPairs, graphUpdates, safeStatusUpdate);
-        if (!isCurrent()) return;
-        setPrompt(newRefinedPrompt);
-        setIsOutdated(true); 
-        clearPendingUpdates(); 
-        setSkippedQuestions([]); 
-        refreshAnalysis(newRefinedPrompt, newAnsweredQuestions, requestMode);
-    } catch(error) {
-        console.error("Failed to handle updates:", error);
-        if (isCurrent()) setGalleryErrors(prev => ({ ...prev, [requestMode]: "无法根据您的更改优化提示词。" }));
-    } finally {
-        if (isCurrent()) {
-            setIsUpdatingPrompt(false);
-            setStatusNotification(null);
-        }
+        const newRefined = await refinePromptWithAllUpdates(prompt, qaPairs, graphUpdates, analysisModel, handleStatusUpdate);
+        setPrompt(newRefined);
+        setPendingAttributeUpdates({}); 
+        setPendingRelationshipUpdates({}); 
+        setPendingClarificationAnswers({});
+        setAnsweredQuestions(prev => [...prev, ...qaPairs.map(a => a.question)]);
+        handleStatusUpdate("提示词已优化，请点击生成按钮开始创作");
+    } catch(error) { 
+        console.error(error); 
+        handleStatusUpdate("优化提示词失败");
+    } finally { 
+        setIsUpdatingPrompt(false); 
     }
   };
-  
-  const ToolTabButton = ({ label, tab, current, description, icon }: { label: string, tab: ToolTab, current: ToolTab, description: string, icon: React.ReactNode }) => (
-      <button 
-        onClick={() => setActiveToolTab(tab)}
-        title={description}
-        className={`px-4 py-3 text-sm font-medium transition-all focus:outline-none flex items-center gap-2 rounded-t-xl border-t border-x ${current === tab ? 'border-ai-border bg-ai-card text-ai-accent' : 'border-transparent text-gray-500 hover:text-gray-300'}`}
-      >
-        {icon}
-        {label}
-      </button>
-  );
 
-  const pendingClarificationCount = Object.keys(pendingClarificationAnswers).length;
-  const pendingGraphUpdatesCount = Object.keys(pendingAttributeUpdates).length + Object.keys(pendingRelationshipUpdates).length;
-  const totalUpdateCount = pendingClarificationCount + pendingGraphUpdatesCount;
+  const processRequest = useCallback(async (currentPrompt: string, currentAnswered: string[], currentMode: Mode, skipAnalysis: boolean, skipGen: boolean) => {
+    const genRequestId = ++generationRequestIdRef.current;
+    
+    // Safety check function to ensure we don't update state for stale requests
+    const isGenCurrent = () => modeRef.current === currentMode && generationRequestIdRef.current === genRequestId;
+    
+    setRequiresApiKey(false);
+    
+    if (!skipAnalysis && currentMode !== 'audio') {
+        setActiveAnalysisView('clarify');
+    }
+
+    if (!skipAnalysis) {
+        setBeliefGraph(null); setClarifications([]);
+        setPendingAttributeUpdates({}); setPendingRelationshipUpdates({}); setPendingClarificationAnswers({});
+        setSkippedQuestions([]); 
+    }
+    
+    // Analysis Phase
+    if (!skipAnalysis && currentMode !== 'audio') {
+        setIsGraphLoading(true); setIsAttributesLoading(true); setIsClarificationsLoading(true);
+        
+        // Execute analysis in parallel but handle them individually
+        Promise.all([
+            parsePromptToBeliefGraph(currentPrompt, currentMode, analysisModel, handleStatusUpdate)
+                .then(g => isGenCurrent() && setBeliefGraph(g))
+                .catch(e => console.error("Graph Error", e))
+                .finally(() => isGenCurrent() && setIsGraphLoading(false)),
+            generateClarifications(currentPrompt, currentAnswered, currentMode, analysisModel, handleStatusUpdate)
+                .then(c => isGenCurrent() && setClarifications(c))
+                .catch(e => console.error("Clarification Error", e))
+                .finally(() => isGenCurrent() && setIsClarificationsLoading(false))
+        ]).then(() => {
+             if (isGenCurrent()) {
+                setIsAttributesLoading(false);
+                setLastAnalyzedPrompt(currentPrompt); 
+                setLastAnalyzedMode(currentMode);
+             }
+        });
+    }
+
+    // Generation Phase
+    if (!skipGen) {
+        setIsGenerating(true);
+        try {
+            let resultItems: any[] = [];
+            const timestamp = Date.now();
+            
+            // Perform generation based on mode
+            if (currentMode === 'image' || currentMode === 'image-to-image') {
+                const imgs = await generateImagesFromPrompt(currentPrompt, genSettings.aspectRatio, genSettings.referenceImages, genSettings.imageCount, genSettings.imageStyle, genSettings.imageSize, genSettings.negativePrompt, genSettings.cameraDetail, handleStatusUpdate);
+                if (imgs.length > 0) {
+                    resultItems = imgs.map((img, i) => ({ id: `${timestamp}-${i}`, timestamp, prompt: currentPrompt, aspectRatio: genSettings.aspectRatio, images: [img] }));
+                }
+            } else if (currentMode === 'story' || currentMode === 'comic') {
+                const content = currentMode === 'story' ? await generateStoryFromPrompt(currentPrompt) : await generateComicScript(currentPrompt);
+                resultItems = [{ id: `${timestamp}`, type: currentMode, content, timestamp }];
+            } else if (currentMode === 'video' || currentMode === 'video-multiframe') {
+                const url = currentMode === 'video' 
+                    ? await generateVideosFromPrompt(currentPrompt, genSettings.referenceImages, genSettings.aspectRatio, genSettings.resolution, handleStatusUpdate) 
+                    : await generateSmartMultiFrameVideo(currentPrompt, genSettings.referenceImages, genSettings.aspectRatio, handleStatusUpdate);
+                if (url) resultItems = [{ id: `${timestamp}`, url, prompt: currentPrompt, timestamp }];
+            } else if (currentMode === 'audio') {
+                if (genSettings.audioMode === 'speech') {
+                    const url = await generateSpeech(currentPrompt ? `${currentPrompt}: ${audioText}` : audioText, genSettings.audioVoice);
+                    resultItems = [{ id: `${timestamp}`, timestamp, prompt: audioText, audioUrl: url, voice: genSettings.audioVoice, subType: 'speech' }];
+                } else {
+                    const musicScore = await generateMusicScore(currentPrompt || audioText, genSettings.musicStyle);
+                    resultItems = [{ id: `${timestamp}`, timestamp, prompt: currentPrompt || audioText, subType: 'music', musicScore }];
+                }
+            }
+
+            // Only update state if request is still valid and we have results
+            if (isGenCurrent()) {
+                if (resultItems.length > 0) {
+                    setBatches(prev => [{ id: `batch-${timestamp}`, timestamp, mode: currentMode, prompt: currentPrompt, isExpanded: true, items: resultItems }, ...prev]);
+                    setHasGenerated(true);
+                    handleStatusUpdate("创作完成");
+                } else {
+                    handleStatusUpdate("生成未返回结果，请重试");
+                }
+            }
+        } catch (error: any) {
+            if (isGenCurrent()) {
+                if (error.message && error.message.includes("API key")) setRequiresApiKey(true);
+                else handleStatusUpdate(`错误: ${error.message || "未知错误"}`);
+            }
+        } finally { 
+            if (isGenCurrent()) setIsGenerating(false); 
+        }
+    }
+  }, [genSettings, audioText, handleStatusUpdate, analysisModel]);
+
+  const handleBatchExpand = (id: string) => { setBatches(prev => prev.map(b => b.id === id ? { ...b, isExpanded: true } : b)); };
+  
+  // Dynamic layout calculation to support compact rows based on aspect ratio
+  const getBatchLayout = useCallback((batch: GenerationBatch) => {
+      const GAP = 12; // Base gap between items
+      let itemWidth = 256; // w-64
+      let itemHeight = 256; // 1:1 default height
+
+      if (batch.mode === 'image' || batch.mode === 'image-to-image') {
+          const first = batch.items[0] as any;
+          const ar = first?.aspectRatio;
+          if (ar === '9:16') itemHeight = 455; 
+          else if (ar === '16:9') itemHeight = 144;
+          else itemHeight = 256; 
+      } else if (batch.mode === 'video' || batch.mode === 'video-multiframe') {
+          itemWidth = 320; 
+          itemHeight = 180; 
+      } else if (batch.mode === 'audio') {
+          itemWidth = 288;
+          itemHeight = 160; 
+      } else if (batch.mode === 'note') {
+          itemWidth = 256;
+          itemHeight = 200;
+      } else {
+          itemWidth = 450; 
+          itemHeight = 550;
+      }
+
+      return {
+          strideX: itemWidth + GAP,
+          strideY: itemHeight + GAP
+      };
+  }, []);
+
+  // Optimized Y calculation using batches state directly
+  const calculateBatchY = (index: number, currentBatches: GenerationBatch[]) => {
+      let y = 100;
+      // Iterate only up to the current index
+      for (let i = 0; i < index; i++) {
+          const b = currentBatches[i];
+          const layout = getBatchLayout(b);
+          
+          if (!b.isExpanded) {
+              y += 180; // Collapsed height + padding
+          } else {
+              const itemsPerRow = 4;
+              const rows = Math.ceil(b.items.length / itemsPerRow);
+              y += 100 + (rows * layout.strideY);
+          }
+      }
+      return y;
+  };
+
+  const updateItemPosition = useCallback((id: string, x: number, y: number) => { 
+      itemPositionsRef.current[id] = { x, y }; 
+      // Force a re-render for connections only if specific conditions met (optimization)
+      // Actually we need to re-render to update lines.
+      setConnections(prev => [...prev]); 
+  }, []);
+
+  const handleAddNewNode = (type: 'note' | 'image' | 'story', x: number, y: number, sourcePrompt?: string) => {
+      const timestamp = Date.now();
+      const id = `manual-${timestamp}`;
+
+      if (type === 'note') {
+          const newItem = {
+              id,
+              content: sourcePrompt ? `关于 "${sourcePrompt.slice(0, 20)}..." 的笔记` : "点击编辑输入内容...",
+              timestamp,
+              type: 'note'
+          };
+          setBatches(prev => [{
+              id: `batch-${id}`,
+              timestamp,
+              mode: 'note',
+              prompt: "便签",
+              isExpanded: true,
+              items: [newItem]
+          }, ...prev]);
+          setNodeOverrides(prev => ({ ...prev, [id]: { x, y } }));
+      } else {
+          setPrompt(sourcePrompt || "");
+          setMode(type);
+          setNodeOverrides(prev => ({ ...prev, 'creation-center': { x, y } }));
+          bringToFront('creation-center');
+      }
+      setContextMenu(null);
+  };
+
+  const handleNodeAddHandleClick = (e: React.MouseEvent, nodeId: string, side: 'left' | 'right', promptContext: string) => {
+      e.stopPropagation();
+      const currentOverride = nodeOverrides[nodeId] || itemPositionsRef.current[nodeId];
+      const baseX = currentOverride?.x ?? e.clientX;
+      const baseY = currentOverride?.y ?? e.clientY;
+      const newX = side === 'right' ? baseX + 320 : baseX - 320;
+      const newY = baseY;
+
+      setContextMenu({
+          x: e.clientX,
+          y: e.clientY,
+          canvasX: newX,
+          canvasY: newY,
+          sourceNodeId: nodeId,
+          type: 'node-handle'
+      });
+  };
+
+  const handleContextAction = (action: string) => {
+      if (!contextMenu) return;
+      const { sourceNodeId, canvasX, canvasY } = contextMenu;
+      
+      let sourceImage: string | undefined;
+      let sourcePrompt = "";
+      if (sourceNodeId && contextMenu.type === 'node-handle') {
+        for (const batch of batches) {
+            const item = batch.items.find(i => i.id === sourceNodeId);
+            if (item) {
+                sourcePrompt = batch.prompt;
+                if ((item as any).images && (item as any).images.length > 0) {
+                    sourceImage = (item as any).images[0];
+                }
+            }
+        }
+      }
+
+      if (contextMenu.type === 'node-handle') {
+        setNodeOverrides(prev => ({ ...prev, 'creation-center': { x: canvasX, y: canvasY } }));
+
+        if (action === 'image') {
+            setMode('image');
+            setPrompt(sourcePrompt ? `Variant of: ${sourcePrompt}` : "");
+        } else if (action === 'video') {
+            setMode('video');
+            setPrompt(sourcePrompt);
+            if (sourceImage) updateSettings({ referenceImages: [sourceImage] });
+        } else if (action === 'img2img') {
+            setMode('image-to-image');
+            setPrompt(sourcePrompt);
+            if (sourceImage) updateSettings({ referenceImages: [sourceImage] });
+        } else if (action === 'multi-angle') {
+            setMode('image'); 
+            setPrompt(`${sourcePrompt}, multiple angles, character sheet`);
+            if (sourceImage) updateSettings({ referenceImages: [sourceImage] });
+        } else if (action === 'story') {
+            setMode('story');
+            setPrompt(`Continue the story based on: ${sourcePrompt}`);
+        }
+      }
+      
+      setContextMenu(null);
+  };
 
   return (
-    <div className={`dark font-sans h-screen flex flex-col bg-ai-dark text-gray-200 transition-colors duration-200 overflow-hidden`}>
-        <Header 
-            isDarkMode={isDarkMode} 
-            toggleDarkMode={() => setIsDarkMode(!isDarkMode)} 
-        />
-
+    <div className="dark font-sans h-screen flex flex-col bg-ai-dark text-gray-200 overflow-hidden" 
+         onContextMenu={(e) => e.preventDefault()}> 
+        <Header isDarkMode={isDarkMode} toggleDarkMode={() => setIsDarkMode(!isDarkMode)} />
+        
         {statusNotification && (
-            <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-[2000] animate-fade-in-down px-4 w-full max-w-md">
-                <div className="bg-ai-card/90 border border-ai-accent/30 text-ai-accent-100 px-4 py-3 rounded-2xl shadow-2xl flex items-center gap-3 backdrop-blur-md">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 animate-pulse text-ai-accent" viewBox="0 0 20 20" fill="currentColor">
-                        <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                    </svg>
-                    <span className="text-sm font-medium flex-1 text-gray-200">{statusNotification}</span>
-                    <button 
-                        onClick={() => setStatusNotification(null)} 
-                        className="ml-auto text-gray-400 hover:text-white transition-colors flex items-center justify-center"
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                           <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-                        </svg>
+            <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[1000] animate-in fade-in slide-in-from-top-4 duration-300 pointer-events-none">
+                <div className="bg-ai-card/90 border border-ai-accent/30 text-gray-200 px-6 py-3 rounded-2xl shadow-2xl flex items-center gap-3 backdrop-blur-xl border-t-ai-accent/50">
+                    <div className="w-2 h-2 rounded-full bg-ai-accent animate-pulse shadow-[0_0_8px_rgba(139,92,246,1)]"></div>
+                    <span className="text-xs font-black tracking-widest uppercase">{statusNotification}</span>
+                </div>
+            </div>
+        )}
+
+        {lightboxImage && (
+            <div className="fixed inset-0 z-[5000] bg-black/95 backdrop-blur-3xl flex items-center justify-center animate-in fade-in duration-500" onClick={() => setLightboxImage(null)}>
+                <div className="relative group max-w-[90vw] max-h-[90vh]">
+                    <img src={lightboxImage} alt="Preview" className="w-full h-full object-contain rounded-2xl shadow-[0_0_100px_rgba(0,0,0,0.8)] animate-in zoom-in-95 duration-500" onClick={(e) => e.stopPropagation()} />
+                    <button className="absolute -top-12 -right-12 p-3 text-white/50 hover:text-white transition-colors" onClick={() => setLightboxImage(null)}>
+                        <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                     </button>
                 </div>
             </div>
         )}
 
-        <div className="flex-1 flex overflow-hidden relative gap-2 p-2">
-            <TemplateSidebar 
-                onApply={setPrompt}
-                mode={mode}
-                setMode={handleModeChange}
-                imageCount={imageCount}
-                setImageCount={setImageCount}
-                imageStyle={imageStyle}
-                setImageStyle={setImageStyle}
-                imageSize={imageSize}
-                setImageSize={setImageSize}
-                aspectRatio={aspectRatio}
-                setAspectRatio={setAspectRatio}
-                resolution={resolution}
-                setResolution={setResolution}
-                onSelectApiKey={handleSelectApiKey}
-            />
+        <BatchActionBar selectedCount={selectedItemIds.size} onAction={handleBatchAction} />
 
-            <main className="flex-1 flex w-full min-w-0 gap-2">
+        {contextMenu && (
+            <div 
+                className="fixed bg-ai-card border border-ai-border rounded-xl shadow-2xl p-1 z-[9999] w-56 animate-in fade-in zoom-in-95 duration-100 flex flex-col gap-1"
+                style={{ left: contextMenu.x, top: contextMenu.y }}
+                onClick={(e) => e.stopPropagation()}
+            >
+                <div className="px-3 py-2 text-[10px] font-bold text-gray-500 uppercase tracking-widest border-b border-white/5 mb-1">
+                    {contextMenu.type === 'node-handle' ? "节点延展" : contextMenu.type === 'node' ? "节点操作" : "画布操作"}
+                </div>
                 
-                {/* LEFT COLUMN: Creation & Refinement (33%) */}
-                <div className={`flex-col bg-ai-card rounded-2xl border border-ai-border w-full xl:w-[33%] flex-shrink-0 z-10 overflow-hidden ${mobileView === 'editor' ? 'flex' : 'hidden xl:flex'}`}>
-                    
-                    {/* 1. Prompt Input (Fixed Top) */}
-                    <div className="flex-shrink-0 p-4 pb-2 h-96">
-                        <PromptInput
-                            prompt={prompt}
-                            setPrompt={setPrompt}
-                            // Removed aspect ratio, resolution etc from here
-                            onSubmit={handlePromptSubmit}
-                            onAnalyze={handleAnalyzeOnly}
-                            isLoading={isGenerating}
-                            isGenerating={isGenerating}
-                            isFirstRun={!hasGenerated}
-                            mode={mode}
-                            // Removed setMode
-                            referenceImages={referenceImages}
-                            setReferenceImages={setReferenceImages}
-                        />
-                    </div>
-
-                    {/* 2. Workspace Navigation */}
-                    <div className="flex-shrink-0 px-4 mt-2 border-b border-ai-border flex items-center justify-between">
-                         <div className="flex space-x-1">
-                            <ToolTabButton 
-                                label="澄清" 
-                                tab="clarify" 
-                                current={activeToolTab} 
-                                description="回答 AI 问题以完善提示词细节" 
-                                icon={<HandDrawnClapper className="h-4 w-4" />}
-                            />
-                            <ToolTabButton 
-                                label="图谱" 
-                                tab="graph" 
-                                current={activeToolTab} 
-                                description="可视化编辑场景中的实体关系" 
-                                icon={<HandDrawnNodes className="h-4 w-4" />}
-                            />
-                            <ToolTabButton 
-                                label="属性" 
-                                tab="attributes" 
-                                current={activeToolTab} 
-                                description="调整场景中各个对象的具体属性" 
-                                icon={<HandDrawnSettings className="h-4 w-4" />}
-                            />
-                         </div>
-                    </div>
-
-                    {/* 3. Main Workspace (Flexible Content) */}
-                    <div className="flex-1 relative overflow-hidden bg-ai-dark/30">
-                        {/* Clarification Card Container */}
-                        <div className={`absolute inset-0 p-4 overflow-y-auto ${activeToolTab === 'clarify' ? 'block' : 'hidden'}`}>
-                            <ClarificationCard
-                                clarifications={clarifications}
-                                onRefresh={handleRefreshClarifications}
-                                isLoading={isClarificationsLoading} 
-                                pendingAnswers={pendingClarificationAnswers}
-                                setPendingAnswers={setPendingClarificationAnswers}
-                                prompt={prompt}
-                            />
-                        </div>
-
-                        {/* Belief Graph / Attributes Container */}
-                        <div className={`absolute inset-0 ${activeToolTab !== 'clarify' ? 'block' : 'hidden'}`}>
-                            <BeliefGraph 
-                                data={beliefGraph} 
-                                isLoading={isGraphLoading} 
-                                mode={mode} 
-                                view={activeToolTab === 'attributes' ? 'attributes' : 'graph'}
-                                isVisible={activeToolTab !== 'clarify'}
-                                pendingAttributeUpdates={pendingAttributeUpdates}
-                                setPendingAttributeUpdates={setPendingAttributeUpdates}
-                                pendingRelationshipUpdates={pendingRelationshipUpdates}
-                                setPendingRelationshipUpdates={setPendingRelationshipUpdates}
-                                pendingClarificationCount={pendingClarificationCount}
-                                currentPrompt={prompt}
-                                onAddEntity={handleAddEntity}
-                            />
-                        </div>
-                    </div>
-
-                    {/* 4. Action Footer (Conditional) */}
-                    <div className={`flex-shrink-0 border-t border-ai-border bg-ai-card px-6 py-4 transition-all duration-300 flex items-center justify-between ${totalUpdateCount > 0 ? 'translate-y-0 opacity-100' : 'translate-y-full opacity-0 h-0 p-0 overflow-hidden'}`}>
-                        <div className="flex items-center gap-2 text-ai-accent text-sm font-medium">
-                            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-ai-accent/20 text-xs font-bold">{totalUpdateCount}</span>
-                            <span>项更改</span>
-                        </div>
-                        <button
-                            onClick={handleApplyAllUpdates}
-                            disabled={isUpdatingPrompt}
-                            className="bg-ai-accent hover:bg-ai-accent-hover text-white font-bold py-2 px-4 rounded-xl shadow-lg shadow-ai-accent/20 flex items-center gap-2 transition-transform active:scale-95 text-xs"
-                        >
-                             {isUpdatingPrompt ? (
-                                <>
-                                <svg className="animate-spin h-3 w-3 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                </svg>
-                                <span>优化中</span>
-                                </>
-                            ) : (
-                                <span>更新重绘</span>
-                            )}
+                {contextMenu.type === 'node-handle' && (
+                    <>
+                        <button onClick={() => handleContextAction('image')} className="text-left px-3 py-2 hover:bg-white/10 rounded-lg text-xs flex items-center gap-2 transition-colors group">
+                            <HandDrawnPalette className="w-4 h-4 text-purple-400 group-hover:scale-110 transition-transform" />
+                            <span>图片生成 (Image Gen)</span>
                         </button>
-                    </div>
-
-                </div>
-                
-                {/* RIGHT COLUMN: Gallery & Output (67%) */}
-                <div className={`flex-col flex-1 bg-ai-card w-full xl:w-[67%] min-w-0 ${mobileView === 'preview' ? 'flex' : 'hidden xl:flex'} rounded-2xl border border-ai-border shadow-lg overflow-hidden relative`}>
-                    <OutputDisplay
-                        imageHistory={imageHistory}
-                        story={story}
-                        video={video}
-                        mode={mode}
-                        isLoading={isGenerating}
-                        error={galleryErrors[mode]}
-                        isOutdated={isOutdated}
-                        requiresApiKey={requiresApiKey}
-                        onSelectKey={handleSelectApiKey}
-                    />
-                </div>
-
-            </main>
-        </div>
-
-        {/* Mobile View Toggles (Fixed Bottom) */}
-        <div className="xl:hidden bg-ai-card border-t border-ai-border flex justify-around p-2 shadow-2xl z-[200] fixed bottom-0 left-0 right-0" style={{ paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))' }}>
-            <button onClick={() => setMobileView('editor')} className={`flex-1 flex flex-col items-center justify-center py-2 rounded-xl transition-colors ${mobileView === 'editor' ? 'text-ai-accent bg-ai-accent/10' : 'text-gray-500'}`}>
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mb-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
-                <span className="text-[10px] font-bold uppercase tracking-wide">编辑</span>
-            </button>
-            <button onClick={() => setMobileView('preview')} className={`flex-1 flex flex-col items-center justify-center py-2 rounded-xl transition-colors ${mobileView === 'preview' ? 'text-ai-accent bg-ai-accent/10' : 'text-gray-500'}`}>
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mb-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                <span className="text-[10px] font-bold uppercase tracking-wide">预览</span>
-            </button>
-        </div>
-
-        {showModeChangePopup && (
-            <div className="fixed bottom-4 right-4 z-[2000] animate-fade-in-up max-w-sm w-full mx-auto px-4 sm:px-0">
-                <div className="bg-ai-card border-l-4 border-amber-500 rounded-r-xl shadow-2xl p-4 relative flex flex-col gap-1 border border-ai-border">
-                     <button onClick={() => setShowModeChangePopup(false)} className="absolute top-2 right-2 text-gray-500 hover:text-white transition-colors"><svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" /></svg></button>
-                    <div className="flex items-start">
-                        <div className="flex-shrink-0 pt-0.5"><svg className="h-5 w-5 text-amber-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" /></svg></div>
-                        <div className="ml-3 pr-6">
-                            <h3 className="text-sm font-bold text-white">模式已更改</h3>
-                            <p className="mt-1 text-sm text-gray-400 leading-relaxed">信念图和澄清问题来自上一个模式。它们被保留以供参考，但可能已过时。</p>
-                        </div>
-                    </div>
-                </div>
+                        <button onClick={() => handleContextAction('video')} className="text-left px-3 py-2 hover:bg-white/10 rounded-lg text-xs flex items-center gap-2 transition-colors group">
+                            <HandDrawnCamera className="w-4 h-4 text-blue-400 group-hover:scale-110 transition-transform" />
+                            <span>视频生成 (Video Gen)</span>
+                        </button>
+                        <button onClick={() => handleContextAction('img2img')} className="text-left px-3 py-2 hover:bg-white/10 rounded-lg text-xs flex items-center gap-2 transition-colors group">
+                            <HandDrawnReel className="w-4 h-4 text-green-400 group-hover:scale-110 transition-transform" />
+                            <span>图生图 (Img2Img)</span>
+                        </button>
+                        <button onClick={() => handleContextAction('multi-angle')} className="text-left px-3 py-2 hover:bg-white/10 rounded-lg text-xs flex items-center gap-2 transition-colors group">
+                            <HandDrawnFilmStrip className="w-4 h-4 text-orange-400 group-hover:scale-110 transition-transform" />
+                            <span>多角度延展 (Multi-angle)</span>
+                        </button>
+                        <button onClick={() => handleContextAction('story')} className="text-left px-3 py-2 hover:bg-white/10 rounded-lg text-xs flex items-center gap-2 transition-colors group">
+                            <HandDrawnBookOpen className="w-4 h-4 text-pink-400 group-hover:scale-110 transition-transform" />
+                            <span>剧情延展 (Plot Ext)</span>
+                        </button>
+                    </>
+                )}
             </div>
         )}
+
+        <div className="absolute top-24 left-6 bottom-8 z-[90] pointer-events-none">
+            <div className="pointer-events-auto h-full">
+                <TemplateSidebar 
+                    onApply={setPrompt} 
+                    mode={mode} 
+                    setMode={handleModeChange} 
+                    settings={genSettings}
+                    updateSettings={updateSettings}
+                    onSelectApiKey={() => (window as any).aistudio?.openSelectKey()}
+                    onTriggerUpload={() => promptInputRef.current?.triggerFileUpload()}
+                />
+            </div>
+        </div>
+
+        <div className="flex-1 w-full h-full pt-16">
+            <CanvasWorkspace 
+                onSelectionEnd={handleSelectionEnd} 
+                onBackgroundClick={handleBackgroundClick}
+            >
+                {/* Render Connections */}
+                <svg className="absolute inset-0 w-full h-full pointer-events-none z-0 overflow-visible">
+                    {connections.map(conn => {
+                        const sourcePos = itemPositionsRef.current[conn.sourceId];
+                        const targetPos = itemPositionsRef.current[conn.targetId];
+                        if (!sourcePos || !targetPos) return null;
+                        
+                        // Simple center estimation (assuming avg width/height)
+                        const x1 = sourcePos.x + 150; 
+                        const y1 = sourcePos.y + 100;
+                        const x2 = targetPos.x + 150;
+                        const y2 = targetPos.y + 100;
+                        
+                        const dx = Math.abs(x2 - x1);
+                        const c1x = x1 + dx * 0.5;
+                        const c2x = x2 - dx * 0.5;
+
+                        return (
+                            <path 
+                                key={conn.id}
+                                d={`M ${x1} ${y1} C ${c1x} ${y1}, ${c2x} ${y2}, ${x2} ${y2}`}
+                                fill="none"
+                                stroke="#525252"
+                                strokeWidth="2"
+                                strokeDasharray="5,5"
+                                className="opacity-50"
+                            />
+                        );
+                    })}
+                    {connectingSourceId && itemPositionsRef.current[connectingSourceId] && (
+                        /* Visual cue for pending connection */
+                        <circle cx={itemPositionsRef.current[connectingSourceId].x + 150} cy={itemPositionsRef.current[connectingSourceId].y + 100} r="5" fill="#10b981" className="animate-ping" />
+                    )}
+                </svg>
+
+                <DraggableNode 
+                    id="creation-center" 
+                    initialX={nodeOverrides['creation-center']?.x ?? 400} 
+                    initialY={nodeOverrides['creation-center']?.y ?? 100} 
+                    width="w-[420px]" 
+                    height="h-[520px]" 
+                    title="创意中心" 
+                    tooltip="在这里构筑您的创意，支持文本、图像上传。Gemini 3 Pro 将深度思考您的输入。" 
+                    icon={<HandDrawnPen className="w-4 h-4" />} 
+                    onPositionChange={updateItemPosition}
+                    onSelect={(id) => bringToFront(id)}
+                    isSelected={selectedItemIds.has('creation-center')}
+                    className={`z-[${getZIndex('creation-center')}]`}
+                    onAddNext={(e) => handleNodeAddHandleClick(e, 'creation-center', 'right', prompt)}
+                    staticNode={true}
+                    isLocked={lockedNodeIds.has('creation-center')}
+                >
+                    <div className="h-full p-3 flex flex-col">
+                        <PromptInput 
+                            ref={promptInputRef} 
+                            prompt={prompt} 
+                            setPrompt={setPrompt} 
+                            onSubmit={() => processRequest(prompt, answeredQuestions, mode, false, false)} 
+                            onAnalyze={() => processRequest(prompt, answeredQuestions, mode, false, true)} 
+                            isLoading={isGenerating} 
+                            isGenerating={isGenerating} 
+                            isFirstRun={!hasGenerated} 
+                            mode={mode} 
+                            settings={genSettings}
+                            updateSettings={updateSettings}
+                            audioText={audioText} 
+                            setAudioText={setAudioText} 
+                        />
+                    </div>
+                </DraggableNode>
+
+                <DraggableNode 
+                    id="analysis-center" 
+                    initialX={nodeOverrides['analysis-center']?.x ?? 880} 
+                    initialY={nodeOverrides['analysis-center']?.y ?? 100} 
+                    width="w-[600px]" 
+                    height="h-[640px]" 
+                    title="共创分析" 
+                    tooltip="通过信念图谱和智能澄清，AI 能够识别您想法中的模糊点并给出专业增强建议。" 
+                    icon={<HandDrawnNodes className="w-4 h-4" />} 
+                    onPositionChange={updateItemPosition}
+                    onSelect={(id) => bringToFront(id)}
+                    isSelected={selectedItemIds.has('analysis-center')}
+                    className={`z-[${getZIndex('analysis-center')}]`}
+                    staticNode={true}
+                    isLocked={lockedNodeIds.has('analysis-center')}
+                >
+                    <div className="flex flex-col h-full bg-ai-dark/30">
+                        <div className="flex items-center justify-between px-2 py-1 bg-black/20 border-b border-white/5">
+                            <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">分析模型</span>
+                            <select 
+                                value={analysisModel} 
+                                onChange={(e) => setAnalysisModel(e.target.value)}
+                                className="text-[10px] bg-transparent text-ai-accent font-mono outline-none cursor-pointer"
+                            >
+                                <option value="gemini-3-pro-preview">Gemini 3 Pro (High Quality)</option>
+                                <option value="gemini-3-flash-preview">Gemini 3 Flash (Fast)</option>
+                            </select>
+                        </div>
+                        <div className="flex border-b border-white/5 bg-black/40 p-1">
+                            {['graph', 'clarify', 'attributes', 'pose'].map(v => (
+                                <button key={v} onClick={() => setActiveAnalysisView(v as any)} className={`flex-1 py-2 text-[10px] font-black tracking-widest uppercase transition-all rounded-xl ${activeAnalysisView === v ? 'text-ai-accent bg-ai-accent/10 border border-ai-accent/30' : 'text-gray-500 hover:text-gray-300'}`}>
+                                    {v === 'graph' ? '信念图谱' : v === 'clarify' ? '智能澄清' : v === 'attributes' ? '属性调优' : '姿势参考'}
+                                </button>
+                            ))}
+                        </div>
+                        <div className="flex-1 relative overflow-hidden">
+                            <div className={`${activeAnalysisView === 'graph' ? 'block' : 'hidden'} absolute inset-0`}>
+                                <BeliefGraph data={beliefGraph} isLoading={isGraphLoading} mode={mode} view='graph' pendingAttributeUpdates={pendingAttributeUpdates} setPendingAttributeUpdates={setPendingAttributeUpdates} pendingRelationshipUpdates={pendingRelationshipUpdates} setPendingRelationshipUpdates={setPendingRelationshipUpdates} pendingClarificationCount={Object.keys(pendingClarificationAnswers).length} currentPrompt={prompt} />
+                            </div>
+                            <div className={`${activeAnalysisView === 'attributes' ? 'block' : 'hidden'} absolute inset-0`}>
+                                <BeliefGraph data={beliefGraph} isLoading={isGraphLoading} mode={mode} view='attributes' pendingAttributeUpdates={pendingAttributeUpdates} setPendingAttributeUpdates={setPendingAttributeUpdates} pendingRelationshipUpdates={pendingRelationshipUpdates} setPendingRelationshipUpdates={setPendingRelationshipUpdates} pendingClarificationCount={Object.keys(pendingClarificationAnswers).length} currentPrompt={prompt} />
+                            </div>
+                            <div className={`${activeAnalysisView === 'clarify' ? 'block' : 'hidden'} absolute inset-0 bg-ai-card`}>
+                                <ClarificationCard clarifications={clarifications} onRefresh={() => processRequest(prompt, answeredQuestions, mode, false, true)} isLoading={isClarificationsLoading} pendingAnswers={pendingClarificationAnswers} setPendingAnswers={setPendingClarificationAnswers} onApply={handleApplyAllUpdates} isApplying={isUpdatingPrompt} prompt={prompt} />
+                            </div>
+                            <div className={`${activeAnalysisView === 'pose' ? 'block' : 'hidden'} absolute inset-0 bg-ai-card`}>
+                                <PoseReferenceCard currentPrompt={prompt} mode={mode} onApplyPose={handleApplyPose} handleStatusUpdate={handleStatusUpdate} />
+                            </div>
+                        </div>
+                    </div>
+                </DraggableNode>
+
+                {batches.map((batch, bIdx) => {
+                    const batchBaseY = calculateBatchY(bIdx, batches);
+                    const layout = getBatchLayout(batch);
+                    
+                    if (batch.mode === 'note') {
+                        return batch.items.map((item: any) => (
+                            <TextResultNode 
+                                key={item.id} 
+                                item={{...item, type: 'note'}} 
+                                initialX={nodeOverrides[item.id]?.x ?? (1500 + 100)}
+                                initialY={nodeOverrides[item.id]?.y ?? (batchBaseY)}
+                                onClose={() => handleRemoveItem(batch.id, item.id)}
+                                onUpdate={(c) => handleUpdateTextInBatch(batch.id, item.id, c)}
+                                onApplyToPrompt={setPrompt}
+                                onExtend={() => {}}
+                                isSelected={selectedItemIds.has(item.id)}
+                                onSelect={handleSelectNode}
+                                onPositionChange={updateItemPosition}
+                                className={`z-[${getZIndex(item.id)}]`}
+                                isExpanded={expandedNodeId === item.id}
+                                onExpand={() => setExpandedNodeId(item.id)}
+                                isLocked={lockedNodeIds.has(item.id)}
+                            />
+                        ));
+                    }
+
+                    if (!batch.isExpanded) {
+                        return (
+                            <BatchGroupNode 
+                                key={batch.id} 
+                                batch={batch} 
+                                initialX={nodeOverrides[batch.id]?.x ?? 1500} 
+                                initialY={nodeOverrides[batch.id]?.y ?? batchBaseY} 
+                                onExpand={() => handleBatchExpand(batch.id)} 
+                                onClose={() => setBatches(prev => prev.filter(b => b.id !== batch.id))} 
+                            />
+                        );
+                    }
+                    return <React.Fragment key={batch.id}>
+                        {batch.items.map((item, iIdx) => {
+                            const commonProps = {
+                                initialX: nodeOverrides[item.id]?.x ?? (1500 + (iIdx % 4) * layout.strideX),
+                                initialY: nodeOverrides[item.id]?.y ?? (batchBaseY + Math.floor(iIdx / 4) * layout.strideY),
+                                onClose: () => handleRemoveItem(batch.id, item.id),
+                                isSelected: selectedItemIds.has(item.id),
+                                onSelect: handleSelectNode,
+                                onPositionChange: updateItemPosition,
+                                className: `z-[${getZIndex(item.id)}]`,
+                                onAddNext: (e: React.MouseEvent) => handleNodeAddHandleClick(e, item.id, 'right', batch.prompt),
+                                onAddPrev: (e: React.MouseEvent) => handleNodeAddHandleClick(e, item.id, 'left', batch.prompt),
+                                isExpanded: expandedNodeId === item.id,
+                                onExpand: () => setExpandedNodeId(item.id),
+                                isLocked: lockedNodeIds.has(item.id)
+                            };
+                            if (batch.mode === 'image' || batch.mode === 'image-to-image') return <ImageResultNode key={item.id} item={item as any} {...commonProps} onImageClick={setLightboxImage} onExtend={() => {}} onUpdateScript={(idx, txt) => handleUpdateImageScript(batch.id, item.id, idx, txt)} />;
+                            if (batch.mode === 'story' || batch.mode === 'comic') return <TextResultNode key={item.id} item={item as any} {...commonProps} onUpdate={(c) => handleUpdateTextInBatch(batch.id, item.id, c)} onApplyToPrompt={setPrompt} onExtend={() => {}} />;
+                            if (batch.mode === 'video' || batch.mode === 'video-multiframe') return <VideoResultNode key={item.id} item={item as any} {...commonProps} />;
+                            if (batch.mode === 'audio') return <AudioResultNode key={item.id} item={item as any} {...commonProps} />;
+                            return null;
+                        })}
+                    </React.Fragment>;
+                })}
+            </CanvasWorkspace>
+        </div>
     </div>
   );
 }

@@ -1,12 +1,11 @@
-
-
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
 */
 
-import React, { useState, useEffect } from 'react';
-import { HandDrawnReel, HandDrawnSettings, HandDrawnCamera, HandDrawnPalette, HandDrawnPen } from './icons';
+import React, { useState, useEffect, useRef } from 'react';
+import { HandDrawnReel, HandDrawnSettings, HandDrawnCamera, HandDrawnPalette, HandDrawnPen, HandDrawnFilmStrip, HandDrawnSpeaker, HandDrawnBookOpen, HandDrawnNote } from './icons';
+import { Mode, GenerationSettings } from '../types';
 
 interface Template {
   id: string;
@@ -16,344 +15,295 @@ interface Template {
 
 export const IMAGE_STYLES = [
   { id: 'none', label: '默认', value: '' },
-  { id: 'realistic', label: '写实', value: 'realistic, highly detailed, photorealistic photograph, 8k resolution' },
-  { id: 'illustration', label: '插画', value: 'digital illustration, clean lines, artistic composition, stylized' },
-  { id: '3d', label: '3D 渲染', value: '3d render, octane render, unreal engine 5, cinematic lighting, masterpiece' },
-  { id: 'anime', label: '动漫', value: 'anime style, vibrant colors, expressive character, high quality anime art' },
-  { id: 'oil', label: '油画', value: 'oil painting, textured brushstrokes, classical fine art style, masterpiece' },
-  { id: 'cyberpunk', label: '赛博朋克', value: 'cyberpunk style, neon lights, high tech, futuristic, moody atmosphere' },
+  { id: 'realistic', label: '写实 (Realistic)', value: 'realistic, highly detailed, photorealistic photograph, 8k resolution' },
+  { id: 'illustration', label: '插画 (Illustration)', value: 'digital illustration, clean lines, artistic composition, stylized' },
+  { id: '3d', label: '3D 渲染 (3D Render)', value: '3d render, octane render, unreal engine 5, cinematic lighting, masterpiece' },
+  { id: 'anime', label: '动漫 (Anime)', value: 'anime style, vibrant colors, expressive character, high quality anime art' },
+  { id: 'cyberpunk', label: '赛博朋克 (Cyberpunk)', value: 'cyberpunk style, neon lights, high tech, futuristic, moody atmosphere' },
+  { id: 'watercolor', label: '水彩 (Watercolor)', value: 'watercolor painting, soft blending, artistic, expressive, wet-on-wet technique' },
+  { id: 'sketch', label: '素描 (Sketch)', value: 'pencil sketch, graphite drawing, rough lines, shading, artistic sketch' },
 ];
 
-export const IMAGE_SIZES = ['1K', '2K', '4K'] as const;
+export const AUDIO_VOICES = [
+    { id: 'Puck', label: 'Puck (男, 温和)' },
+    { id: 'Charon', label: 'Charon (男, 低沉)' },
+    { id: 'Kore', label: 'Kore (女, 清晰)' },
+    { id: 'Fenrir', label: 'Fenrir (男, 粗犷)' },
+    { id: 'Zephyr', label: 'Zephyr (女, 柔和)' },
+];
+
+export const MUSIC_STYLES = [
+    { id: 'Cinematic', label: '电影原声' },
+    { id: 'Lo-Fi', label: 'Lo-Fi 嘻哈' },
+    { id: 'Ambient', label: '环境氛围' },
+    { id: 'Classical', label: '古典交响' },
+    { id: 'Electronic', label: '电子舞曲' },
+];
+
+export const LENS_TYPES = [
+    { id: 'standard', label: '标准 (35mm)' },
+    { id: 'wide', label: '广角 (16mm)' },
+    { id: 'telephoto', label: '长焦 (85mm)' },
+    { id: 'macro', label: '微距' },
+    { id: 'fisheye', label: '鱼眼' },
+];
 
 const DEFAULT_TEMPLATES: Template[] = [
   {
-    id: 'default-5',
-    title: "多角度分镜图 (Multi-angle Storyboard)",
-    content: `<instruction>\nAnalyze the entire composition of the input image. Identify ALL key subjects present (whether it's a single person, a group/couple, a vehicle, or a specific object) and their spatial relationship/interaction.\nGenerate a cohesive 3x3 grid "Cinematic Contact Sheet" featuring 9 distinct camera shots of exactly these subjects in the same environment.`
+    id: 'default-local-storyboard',
+    title: "局部分镜 (Storyboard)",
+    content: `<instruction>\nAnalyze the uploaded reference image. Generate a high-quality 2x2 grid storyboard.\n1. Panorama\n2. Close-up\n3. Detail Shot\n4. Medium Shot\nEnsure consistent lighting and style.</instruction>`
   },
   {
-    id: 'default-1',
-    title: "电影感接触印样 (Cinematic Contact Sheet)",
-    content: `<instruction>\nAnalyze the entire composition of the input image. Identify ALL key subjects present (whether it's a single person, a group/couple, a vehicle, or a specific object) and their spatial\nrelationship/interaction.\nGenerate a cohesive 3x3 grid "Cinematic Contact Sheet" featuring 9 distinct camera shots of exactly these subjects in the same environment.`
-  },
-  {
-    id: 'default-2',
-    title: "详细视觉描述 (Detailed Description)",
-    content: "Analyze the image in depth. Describe the main subjects, their actions, the setting, lighting, colors, and mood. Be precise about spatial relationships and textures."
-  },
-  {
-    id: 'default-3',
-    title: "风格转换：赛博朋克 (Style: Cyberpunk)",
-    content: "Reimagine this scene in a high-tech, dystopic cyberpunk style. Add neon signage, rain-slicked streets, cybernetic enhancements to characters, and a moody, nocturnal atmosphere."
-  },
-  {
-    id: 'default-4',
-    title: "风格转换：吉卜力 (Style: Studio Ghibli)",
-    content: "Reimagine the image in the style of Studio Ghibli: lush backgrounds, vibrant natural colors, whimsical details, and a sense of wonder and nostalgia."
+    id: 'default-character-consistency',
+    title: "角色一致性 (Consistency)",
+    content: `# 任务：角色一致性图像生成\n严格依据【角色参考图】绘制角色。\n\n**【文字指令】：**\na cinematic photo of **the character**, [在这里详细描述新的场景、动作...]`
   }
 ];
 
 interface TemplateSidebarProps {
   onApply: (content: string) => void;
-  // Mode props
-  mode: string;
-  setMode: (mode: 'image' | 'story' | 'video' | 'image-to-image') => void;
-  // Settings props
-  imageCount: number;
-  setImageCount: (count: number) => void;
-  imageStyle: string;
-  setImageStyle: (style: string) => void;
-  imageSize: '1K' | '2K' | '4K';
-  setImageSize: (size: '1K' | '2K' | '4K') => void;
-  aspectRatio: string;
-  setAspectRatio: (ratio: string) => void;
-  resolution?: '720p' | '1080p';
-  setResolution?: (res: '720p' | '1080p') => void;
+  mode: Mode;
+  setMode: (mode: Mode) => void;
+  settings: GenerationSettings;
+  updateSettings: (updates: Partial<GenerationSettings>) => void;
   onSelectApiKey: () => void;
+  onTriggerUpload?: () => void;
 }
 
 export const TemplateSidebar: React.FC<TemplateSidebarProps> = ({ 
     onApply,
     mode,
     setMode,
-    imageCount,
-    setImageCount,
-    imageStyle,
-    setImageStyle,
-    imageSize,
-    setImageSize,
-    aspectRatio,
-    setAspectRatio,
-    resolution,
-    setResolution,
-    onSelectApiKey
+    settings,
+    updateSettings,
+    onSelectApiKey,
+    onTriggerUpload
 }) => {
   const [isOpen, setIsOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'modes' | 'templates' | 'settings'>('modes');
   const [templates, setTemplates] = useState<Template[]>(DEFAULT_TEMPLATES);
-  const [templateView, setTemplateView] = useState<'list' | 'form'>('list');
-  const [editingTemplate, setEditingTemplate] = useState<Template | null>(null);
-  const [formTitle, setFormTitle] = useState('');
-  const [formContent, setFormContent] = useState('');
   const [hasCustomKey, setHasCustomKey] = useState(false);
+  const [hasCloudKey, setHasCloudKey] = useState(false);
   const [baseUrl, setBaseUrl] = useState('');
+  const [localApiKey, setLocalApiKey] = useState('');
+  
+  const [camX, setCamX] = useState(0); 
+  const [camY, setCamY] = useState(0); 
+  const [camZoom, setCamZoom] = useState(0.5); 
+  const [lensType, setLensType] = useState('standard');
+  const camPadRef = useRef<HTMLDivElement>(null);
+  const isDraggingCam = useRef(false);
 
   useEffect(() => {
     const saved = localStorage.getItem('prompt_templates');
-    if (saved) {
-      try {
-        setTemplates(JSON.parse(saved));
-      } catch (e) {
-        console.error("Failed to load templates", e);
-      }
-    }
-    // Check for existing custom key
-    if (localStorage.getItem('gemini_api_key')) {
-        setHasCustomKey(true);
-    }
+    if (saved) { try { setTemplates(JSON.parse(saved)); } catch (e) {} }
+    const existingKey = localStorage.getItem('gemini_api_key');
+    if (existingKey) { setHasCustomKey(true); setLocalApiKey(existingKey); }
     setBaseUrl(localStorage.getItem('gemini_base_url') || '');
+
+    const checkCloudKey = async () => {
+        const win = window as any;
+        if (win.aistudio?.hasSelectedApiKey) {
+            try { setHasCloudKey(await win.aistudio.hasSelectedApiKey()); } catch (e) {}
+        }
+    };
+    checkCloudKey();
   }, []);
 
   useEffect(() => {
-    localStorage.setItem('prompt_templates', JSON.stringify(templates));
-  }, [templates]);
+      const parts = [];
+      if (camY < -0.3) parts.push('Low angle');
+      else if (camY > 0.3) parts.push('High angle');
+      
+      if (camX < -0.3) parts.push('from left');
+      else if (camX > 0.3) parts.push('from right');
+      
+      if (camZoom < 0.2) parts.push('Panoramic');
+      else if (camZoom < 0.4) parts.push('Wide shot');
+      else if (camZoom > 0.7) parts.push('Close-up');
 
-  const handleApplyTemplate = (content: string) => {
-      onApply(content);
+      const lensLabel = LENS_TYPES.find(l => l.id === lensType)?.label;
+      if (lensLabel) parts.push(`Lens: ${lensLabel}`);
+
+      const detail = parts.join(', ');
+      if (detail !== settings.cameraDetail) updateSettings({ cameraDetail: detail });
+  }, [camX, camY, camZoom, lensType]);
+
+  const handleApplyTemplate = (t: Template) => {
+      onApply(t.content);
+      if (t.id === 'default-local-storyboard' || t.id === 'default-character-consistency') {
+          setMode('image-to-image');
+          if (onTriggerUpload) onTriggerUpload();
+      }
       if (window.innerWidth < 1024) setIsOpen(false);
   };
 
-  const handleAddNewClick = () => {
-      setEditingTemplate(null);
-      setFormTitle('');
-      setFormContent('');
-      setTemplateView('form');
+  const handleCamPadMove = (e: React.MouseEvent | React.TouchEvent) => {
+      if (!camPadRef.current) return;
+      const rect = camPadRef.current.getBoundingClientRect();
+      const clientX = 'touches' in e ? e.touches[0].clientX : (e as React.MouseEvent).clientX;
+      const clientY = 'touches' in e ? e.touches[0].clientY : (e as React.MouseEvent).clientY;
+      
+      let x = (clientX - rect.left) / rect.width;
+      let y = (clientY - rect.top) / rect.height;
+      
+      x = Math.max(0, Math.min(1, x));
+      y = Math.max(0, Math.min(1, y));
+      
+      setCamX((x * 2) - 1);
+      setCamY(1 - (y * 2)); 
   };
 
-  const handleEditClick = (t: Template, e: React.MouseEvent) => {
-      e.stopPropagation();
-      setEditingTemplate(t);
-      setFormTitle(t.title);
-      setFormContent(t.content);
-      setTemplateView('form');
+  const startCamDrag = (e: React.MouseEvent | React.TouchEvent) => {
+      isDraggingCam.current = true;
+      handleCamPadMove(e);
   };
 
-  const handleDeleteClick = (id: string, e: React.MouseEvent) => {
-      e.stopPropagation();
-      if (window.confirm('确定要删除此模版吗？')) {
-          setTemplates(prev => prev.filter(t => t.id !== id));
+  useEffect(() => {
+      const stopDrag = () => isDraggingCam.current = false;
+      const moveDrag = (e: MouseEvent | TouchEvent) => {
+          if (isDraggingCam.current) handleCamPadMove(e as any);
+      };
+      window.addEventListener('mouseup', stopDrag);
+      window.addEventListener('mousemove', moveDrag);
+      window.addEventListener('touchend', stopDrag);
+      window.addEventListener('touchmove', moveDrag);
+      return () => {
+          window.removeEventListener('mouseup', stopDrag);
+          window.removeEventListener('mousemove', moveDrag);
+          window.removeEventListener('touchend', stopDrag);
+          window.removeEventListener('touchmove', moveDrag);
       }
-  };
-
-  const handleSaveTemplate = () => {
-      if (!formTitle.trim() || !formContent.trim()) return;
-
-      if (editingTemplate) {
-          setTemplates(prev => prev.map(t => t.id === editingTemplate.id ? { ...t, title: formTitle, content: formContent } : t));
-      } else {
-          const newTemplate: Template = {
-              id: Date.now().toString(),
-              title: formTitle,
-              content: formContent
-          };
-          setTemplates(prev => [newTemplate, ...prev]);
-      }
-      setTemplateView('list');
-  };
-
-  const handleManageApiKey = () => {
-      const current = localStorage.getItem('gemini_api_key') || '';
-      const newKey = window.prompt("输入您的 Gemini API Key (将被缓存于本地浏览器中):", current);
-      if (newKey !== null) { // User didn't cancel
-          const trimmed = newKey.trim();
-          if (trimmed) {
-              localStorage.setItem('gemini_api_key', trimmed);
-              setHasCustomKey(true);
-          } else {
-              localStorage.removeItem('gemini_api_key');
-              setHasCustomKey(false);
-          }
-          // Optionally reload or just let the service pick it up next time
-          // Reloading ensures any persistent state issues are cleared
-          if (window.confirm("API Key 已更新。是否刷新页面以确保所有组件生效？")) {
-             window.location.reload();
-          }
-      }
-  };
-
-  const isImageMode = mode === 'image' || mode === 'image-to-image';
+  }, []);
 
   const ModeButton = ({ targetMode, icon, label }: { targetMode: string, icon: React.ReactNode, label: string }) => (
       <button 
           onClick={() => setMode(targetMode as any)}
-          className={`flex items-center gap-3 w-full p-3 rounded-xl transition-all group ${mode === targetMode ? 'bg-ai-accent text-white shadow-lg shadow-ai-accent/30' : 'hover:bg-ai-dark/50 text-gray-400 hover:text-white'}`}
+          className={`relative flex items-center justify-center w-12 h-12 rounded-2xl transition-all duration-300 group overflow-hidden ${mode === targetMode ? 'bg-ai-accent text-white shadow-glow' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
+          title={label}
       >
-          <div className={`${mode === targetMode ? 'text-white' : 'text-current group-hover:text-ai-accent'}`}>
-              {icon}
-          </div>
-          {isOpen && <span className="text-sm font-medium">{label}</span>}
-          {mode === targetMode && isOpen && <div className="ml-auto w-1.5 h-1.5 rounded-full bg-white animate-pulse" />}
+          <div className="relative z-10">{icon}</div>
+          {mode === targetMode && <div className="absolute inset-0 bg-gradient-to-tr from-white/20 to-transparent opacity-50"></div>}
       </button>
   );
 
   return (
     <div 
-        className={`bg-ai-card rounded-3xl border border-ai-border flex flex-col transition-all duration-300 ease-in-out z-30 h-full relative shadow-2xl ${isOpen ? 'w-64' : 'w-20'}`}
+        className={`glass-panel-heavy rounded-[2rem] border border-white/5 flex flex-col transition-all duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] z-30 h-full relative shadow-2xl ${isOpen ? 'w-80' : 'w-20'}`}
     >
         <button 
             onClick={() => setIsOpen(!isOpen)}
-            className={`absolute top-6 -right-3 transform bg-ai-card border border-ai-border rounded-full p-1.5 shadow-md text-gray-400 hover:text-ai-accent z-50 transition-transform ${isOpen ? 'rotate-180' : 'rotate-0'}`}
-            title={isOpen ? "收起" : "展开"}
+            className={`absolute top-8 -right-3 w-6 h-6 bg-ai-card border border-ai-border rounded-full flex items-center justify-center shadow-lg text-gray-400 hover:text-white z-50 transition-transform duration-300 ${isOpen ? 'rotate-180' : 'rotate-0'}`}
         >
             <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
             </svg>
         </button>
 
-        <div className="flex flex-col gap-2 p-3 mt-4">
-            <ModeButton targetMode="image" icon={<HandDrawnPalette className="h-6 w-6" />} label="图片生成" />
-            <ModeButton targetMode="story" icon={<HandDrawnPen className="h-6 w-6" />} label="故事创作" />
-            <ModeButton targetMode="video" icon={<HandDrawnCamera className="h-6 w-6" />} label="视频生成" />
-            <ModeButton targetMode="image-to-image" icon={<HandDrawnReel className="h-6 w-6" />} label="图生图" />
+        <div className="flex flex-col items-center gap-3 py-6 w-20 flex-shrink-0 border-r border-white/5 h-full absolute left-0 top-0 bottom-0 bg-black/20">
+            <ModeButton targetMode="image" icon={<HandDrawnPalette className="h-5 w-5" />} label="图片生成" />
+            <ModeButton targetMode="story" icon={<HandDrawnPen className="h-5 w-5" />} label="故事创作" />
+            <ModeButton targetMode="comic" icon={<HandDrawnBookOpen className="h-5 w-5" />} label="漫剧创作" />
+            <ModeButton targetMode="video" icon={<HandDrawnCamera className="h-5 w-5" />} label="视频生成" />
+            <ModeButton targetMode="image-to-image" icon={<HandDrawnReel className="h-5 w-5" />} label="图生图" />
+            <ModeButton targetMode="video-multiframe" icon={<HandDrawnFilmStrip className="h-5 w-5" />} label="智能多帧" />
+            <ModeButton targetMode="audio" icon={<HandDrawnSpeaker className="h-5 w-5" />} label="音频中心" />
+            
+            <div className="flex-1"></div>
+            
+            <button onClick={() => setIsOpen(true)} className="w-10 h-10 rounded-full hover:bg-white/5 flex items-center justify-center text-gray-500 transition-colors">
+                <HandDrawnSettings className="h-5 w-5" />
+            </button>
         </div>
 
-        <div className="my-2 mx-4 border-t border-ai-border/50"></div>
-
-        <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-700 px-3 pb-4">
-             {/* Collapsed View Icons */}
-             {!isOpen && (
-                 <div className="flex flex-col items-center gap-6 mt-4">
-                     <button onClick={() => { setIsOpen(true); setActiveTab('templates'); }} className="text-gray-500 hover:text-ai-accent transition-colors" title="模版">
-                         <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
-                     </button>
-                     <button onClick={() => { setIsOpen(true); setActiveTab('settings'); }} className="text-gray-500 hover:text-ai-accent transition-colors" title="设置">
-                         <HandDrawnSettings className="h-6 w-6" />
-                     </button>
-                 </div>
-             )}
-
-             {/* Expanded Content */}
-             {isOpen && (
-                 <div className="animate-fade-in flex flex-col gap-6">
-                     
-                     {/* Templates Section */}
-                     <div className="flex flex-col gap-3">
-                        <div className="flex justify-between items-center px-1">
-                            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">模版库</h3>
-                            <button onClick={handleAddNewClick} className="text-ai-accent hover:text-white p-1 rounded hover:bg-ai-accent/20 transition-colors">
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-                            </button>
-                        </div>
-                        
-                        {templateView === 'list' ? (
-                            <div className="flex flex-col gap-2">
-                                {templates.length === 0 ? (
-                                    <div className="text-gray-600 text-xs italic text-center py-2">暂无模版</div>
-                                ) : (
-                                    templates.map((t) => (
-                                        <div key={t.id} onClick={() => handleApplyTemplate(t.content)} className="p-3 bg-ai-dark/40 border border-ai-border rounded-xl hover:border-ai-accent/50 hover:bg-ai-dark/80 transition-all group cursor-pointer relative">
-                                            <h4 className="text-sm font-medium text-gray-300 group-hover:text-ai-accent truncate mb-1 pr-6">{t.title}</h4>
-                                            <p className="text-[10px] text-gray-500 line-clamp-2 leading-relaxed">{t.content}</p>
-                                            <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                <button onClick={(e) => handleEditClick(t, e)} className="text-gray-400 hover:text-white"><svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg></button>
-                                                <button onClick={(e) => handleDeleteClick(t.id, e)} className="text-gray-400 hover:text-red-500"><svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
-                                            </div>
-                                        </div>
-                                    ))
-                                )}
-                            </div>
-                        ) : (
-                            <div className="flex flex-col gap-3 bg-ai-dark/40 p-3 rounded-xl border border-ai-border">
-                                <input type="text" value={formTitle} onChange={(e) => setFormTitle(e.target.value)} placeholder="模版标题" className="w-full text-xs bg-ai-dark border border-ai-border rounded-lg p-2 text-gray-200 focus:border-ai-accent outline-none" />
-                                <textarea value={formContent} onChange={(e) => setFormContent(e.target.value)} placeholder="模版内容..." className="w-full text-xs bg-ai-dark border border-ai-border rounded-lg p-2 h-24 text-gray-200 focus:border-ai-accent outline-none resize-none" />
-                                <div className="flex gap-2 justify-end">
-                                    <button onClick={() => setTemplateView('list')} className="text-xs text-gray-400 hover:text-white">取消</button>
-                                    <button onClick={handleSaveTemplate} className="text-xs bg-ai-accent px-3 py-1 rounded text-white hover:bg-ai-accent-hover">保存</button>
+        <div className={`ml-20 h-full flex flex-col transition-opacity duration-300 ${isOpen ? 'opacity-100 delay-100' : 'opacity-0 pointer-events-none'}`}>
+             <div className="flex-1 overflow-y-auto scrollbar-thin p-5 space-y-6">
+                 
+                 {/* Templates */}
+                 {mode !== 'audio' && (
+                     <div className="space-y-3">
+                        <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest">模版库</h3>
+                        <div className="flex flex-col gap-2">
+                            {templates.map((t) => (
+                                <div key={t.id} onClick={() => handleApplyTemplate(t)} className="p-3 bg-white/5 border border-white/5 rounded-xl hover:border-ai-accent/40 hover:bg-white/10 transition-all cursor-pointer group">
+                                    <h4 className="text-xs font-bold text-gray-300 group-hover:text-white truncate">{t.title}</h4>
+                                    <p className="text-[10px] text-gray-500 mt-1 line-clamp-2">{t.content}</p>
                                 </div>
-                            </div>
-                        )}
-                     </div>
-
-                     {/* Settings Section */}
-                     <div className="flex flex-col gap-4">
-                        <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider px-1">参数设置</h3>
-                        
-                        {isImageMode ? (
-                            <div className="flex flex-col gap-3">
-                                <div className="space-y-1">
-                                    <label className="text-[10px] text-gray-400">比例</label>
-                                    <div className="grid grid-cols-3 gap-1">
-                                        {['1:1', '16:9', '9:16'].map(r => (
-                                            <button key={r} onClick={() => setAspectRatio(r)} className={`text-[10px] py-1.5 rounded-lg border ${aspectRatio === r ? 'bg-ai-accent/20 border-ai-accent text-ai-accent' : 'border-ai-border text-gray-400 hover:bg-ai-dark'}`}>{r}</button>
-                                        ))}
-                                    </div>
-                                </div>
-                                <div className="space-y-1">
-                                    <label className="text-[10px] text-gray-400">风格</label>
-                                    <select value={imageStyle} onChange={(e) => setImageStyle(e.target.value)} className="w-full text-xs bg-ai-dark border border-ai-border rounded-lg p-2 text-gray-200 outline-none focus:border-ai-accent">
-                                        {IMAGE_STYLES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
-                                    </select>
-                                </div>
-                                <div className="space-y-1">
-                                    <label className="text-[10px] text-gray-400">质量 (Pro)</label>
-                                    <div className="flex bg-ai-dark rounded-lg p-1 border border-ai-border">
-                                        {['1K', '2K', '4K'].map((s) => (
-                                            <button key={s} onClick={() => setImageSize(s as any)} className={`flex-1 text-[10px] py-1 rounded ${imageSize === s ? 'bg-ai-card text-white shadow' : 'text-gray-500 hover:text-gray-300'}`}>{s}</button>
-                                        ))}
-                                    </div>
-                                </div>
-                            </div>
-                        ) : mode === 'video' ? (
-                             <div className="space-y-1">
-                                <label className="text-[10px] text-gray-400">分辨率</label>
-                                <div className="flex bg-ai-dark rounded-lg p-1 border border-ai-border">
-                                    {['720p', '1080p'].map((r) => (
-                                        <button key={r} onClick={() => setResolution && setResolution(r as any)} className={`flex-1 text-[10px] py-1 rounded ${resolution === r ? 'bg-ai-card text-white shadow' : 'text-gray-500 hover:text-gray-300'}`}>{r}</button>
-                                    ))}
-                                </div>
-                            </div>
-                        ) : (
-                            <div className="p-3 text-[10px] text-gray-500 bg-ai-dark/30 rounded-lg border border-ai-border border-dashed">
-                                当前模式无额外设置
-                            </div>
-                        )}
-
-                        <div className="pt-2 border-t border-ai-border/50 space-y-3">
-                            <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">连接设置</h3>
-                            
-                            <div className="space-y-1">
-                                <label className="text-[10px] text-gray-400">自定义域名 (Base URL)</label>
-                                <input 
-                                    type="text" 
-                                    value={baseUrl}
-                                    onChange={(e) => {
-                                        setBaseUrl(e.target.value);
-                                        localStorage.setItem('gemini_base_url', e.target.value);
-                                    }}
-                                    placeholder="https://generativelanguage.googleapis.com"
-                                    className="w-full text-xs bg-ai-dark border border-ai-border rounded-lg p-2 text-gray-200 outline-none focus:border-ai-accent placeholder-gray-600"
-                                />
-                                <p className="text-[9px] text-gray-500">
-                                    若需使用代理，请输入完整的 Base URL。留空则使用默认 Google 服务器。
-                                </p>
-                            </div>
-
-                            <button 
-                                onClick={handleManageApiKey}
-                                className={`w-full text-xs border py-2 rounded-lg transition-colors flex items-center justify-center gap-2 ${
-                                    hasCustomKey 
-                                    ? 'bg-green-500/10 text-green-500 border-green-500/30 hover:bg-green-500/20' 
-                                    : 'bg-amber-500/10 text-amber-500 border-amber-500/30 hover:bg-amber-500/20'
-                                }`}
-                            >
-                                <span className={`w-2 h-2 rounded-full ${hasCustomKey ? 'bg-green-500' : 'bg-amber-500'}`}></span>
-                                {hasCustomKey ? '已设置 API 密钥' : '设置 API 密钥'}
-                            </button>
+                            ))}
                         </div>
                      </div>
+                 )}
+
+                 {/* Settings */}
+                 <div className="space-y-4">
+                    <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest">参数设置</h3>
+                    
+                    {(mode === 'image' || mode === 'image-to-image') && (
+                        <div className="space-y-4">
+                            <div className="bg-black/40 border border-white/5 rounded-xl p-3 space-y-3">
+                                <label className="text-[10px] font-bold text-gray-400 flex items-center gap-1">
+                                    <HandDrawnCamera className="w-3 h-3" /> 镜头控制
+                                </label>
+                                <div className="relative w-full aspect-square bg-black/50 rounded-lg border border-white/10 overflow-hidden group cursor-crosshair touch-none shadow-inner"
+                                     ref={camPadRef}
+                                     onMouseDown={startCamDrag}
+                                     onTouchStart={startCamDrag}
+                                >
+                                    <div className="absolute inset-0 grid grid-cols-2 grid-rows-2 pointer-events-none border-white/5">
+                                        <div className="border-r border-b border-white/5"></div>
+                                        <div className="border-b border-white/5"></div>
+                                        <div className="border-r border-white/5"></div>
+                                        <div></div>
+                                    </div>
+                                    <div 
+                                        className="absolute w-3 h-3 bg-ai-accent rounded-full shadow-[0_0_10px_rgba(139,92,246,0.5)] border border-white transform -translate-x-1/2 -translate-y-1/2"
+                                        style={{ left: `${((camX + 1) / 2) * 100}%`, top: `${((1 - camY) / 2) * 100}%` }}
+                                    ></div>
+                                </div>
+                                <div className="space-y-2">
+                                    <input 
+                                        type="range" 
+                                        min="0" max="1" step="0.05"
+                                        value={camZoom}
+                                        onChange={(e) => setCamZoom(parseFloat(e.target.value))}
+                                        className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-ai-accent"
+                                    />
+                                    <div className="flex justify-between text-[8px] text-gray-600 font-mono">
+                                        <span>WIDE</span><span>ZOOM</span>
+                                    </div>
+                                </div>
+                                <select 
+                                    value={lensType} 
+                                    onChange={(e) => setLensType(e.target.value)} 
+                                    className="w-full text-[10px] bg-black/50 border border-white/10 rounded-lg p-2 text-gray-300 outline-none focus:border-ai-accent"
+                                >
+                                    {LENS_TYPES.map(l => <option key={l.id} value={l.id}>{l.label}</option>)}
+                                </select>
+                            </div>
+
+                            <div className="grid grid-cols-3 gap-1 bg-black/20 p-1 rounded-xl">
+                                {['1:1', '16:9', '9:16'].map(r => (
+                                    <button key={r} onClick={() => updateSettings({ aspectRatio: r })} className={`text-[10px] py-1.5 rounded-lg border transition-all ${settings.aspectRatio === r ? 'bg-ai-accent text-white border-transparent shadow' : 'border-transparent text-gray-500 hover:text-gray-300'}`}>{r}</button>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* API Key */}
+                    <div className="pt-4 border-t border-white/5 space-y-3">
+                        <button 
+                            onClick={() => { onSelectApiKey(); setHasCloudKey(true); }}
+                            className={`w-full text-[10px] py-2.5 rounded-xl transition-all font-bold flex items-center justify-center gap-2 ${
+                                hasCloudKey 
+                                ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' 
+                                : 'bg-ai-accent/10 text-ai-accent border border-ai-accent/20 hover:bg-ai-accent/20'
+                            }`}
+                        >
+                            <span>{hasCloudKey ? '已链接 Google Cloud' : '链接 API Key'}</span>
+                        </button>
+                    </div>
                  </div>
-             )}
+             </div>
         </div>
     </div>
   );

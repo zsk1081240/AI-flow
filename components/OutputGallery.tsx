@@ -5,8 +5,8 @@
 */
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { ImageGenerationItem } from '../types';
-import { HandDrawnScreen } from './icons';
+import { ImageGenerationItem, AudioGenerationItem } from '../types';
+import { HandDrawnScreen, HandDrawnSpeaker, HandDrawnNote, HandDrawnBookOpen } from './icons';
 
 const ErrorIcon = () => (
     <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -16,9 +16,11 @@ const ErrorIcon = () => (
 
 interface OutputDisplayProps {
   imageHistory: ImageGenerationItem[];
+  audioHistory?: AudioGenerationItem[];
   story: string | null;
   video: string | null;
-  mode: 'image' | 'story' | 'video' | 'image-to-image';
+  comicScript?: string | null;
+  mode: 'image' | 'story' | 'video' | 'image-to-image' | 'audio' | 'comic';
   isLoading: boolean;
   error: string | null;
   isOutdated: boolean;
@@ -28,8 +30,10 @@ interface OutputDisplayProps {
 
 const OutputDisplay: React.FC<OutputDisplayProps> = ({ 
     imageHistory, 
+    audioHistory = [],
     story, 
     video, 
+    comicScript,
     mode, 
     isLoading, 
     error, 
@@ -48,10 +52,10 @@ const OutputDisplay: React.FC<OutputDisplayProps> = ({
   const canvasRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-      if (imageHistory.length > 0 && !isLoading) {
+      if (imageHistory.length > 0 && !isLoading && mode !== 'audio' && mode !== 'comic') {
           setViewTransform({ x: 0, y: 20, k: 1 });
       }
-  }, [imageHistory.length, isLoading]);
+  }, [imageHistory.length, isLoading, mode]);
 
   const downloadFile = useCallback((url: string, filename: string) => {
     const element = document.createElement("a");
@@ -152,6 +156,36 @@ const OutputDisplay: React.FC<OutputDisplayProps> = ({
       window.addEventListener('keydown', handleKeyDown);
       return () => window.removeEventListener('keydown', handleKeyDown);
   }, [lightbox, imageHistory]);
+
+  const renderTable = (text: string) => {
+      const rows = text.split('\n').filter(line => line.trim().startsWith('|'));
+      if (rows.length < 2) return <p className="text-gray-300">{text}</p>;
+
+      return (
+          <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-700 border border-gray-700 rounded-lg overflow-hidden">
+                  <thead className="bg-gray-800">
+                      {rows[0].split('|').slice(1, -1).map((header, i) => (
+                          <th key={i} scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider border-r border-gray-700 last:border-r-0">
+                              {header.trim()}
+                          </th>
+                      ))}
+                  </thead>
+                  <tbody className="bg-gray-900 divide-y divide-gray-800">
+                      {rows.slice(2).map((row, i) => (
+                          <tr key={i} className="hover:bg-gray-800/50 transition-colors">
+                              {row.split('|').slice(1, -1).map((cell, j) => (
+                                  <td key={j} className="px-6 py-4 text-xs text-gray-300 border-r border-gray-800 last:border-r-0 align-top">
+                                      {cell.trim()}
+                                  </td>
+                              ))}
+                          </tr>
+                      ))}
+                  </tbody>
+              </table>
+          </div>
+      );
+  };
 
   if (requiresApiKey) {
       return (
@@ -360,11 +394,17 @@ const OutputDisplay: React.FC<OutputDisplayProps> = ({
                 <div className={`p-2 rounded-xl bg-ai-card text-ai-accent shadow-lg border border-ai-border`}>
                     {mode === 'video' ? (
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                    ) : mode === 'audio' ? (
+                        <HandDrawnSpeaker className="h-5 w-5" />
+                    ) : mode === 'comic' ? (
+                        <HandDrawnBookOpen className="h-5 w-5" />
                     ) : (
                         <HandDrawnScreen className="h-5 w-5" />
                     )}
                 </div>
-                <h2 className="text-xl font-bold text-white tracking-tight">{mode === 'video' ? '视频生成' : '故事撰写'}</h2>
+                <h2 className="text-xl font-bold text-white tracking-tight">
+                    {mode === 'video' ? '视频生成' : mode === 'audio' ? '音频中心' : mode === 'comic' ? '漫剧创作' : '故事撰写'}
+                </h2>
             </div>
         </div>
         
@@ -407,6 +447,90 @@ const OutputDisplay: React.FC<OutputDisplayProps> = ({
                             <div className="flex flex-col items-center justify-center h-full text-gray-600 border border-ai-border/30 border-dashed rounded-xl m-4">
                                 <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mb-3 opacity-20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
                                 <span className="text-sm font-medium">生成视频后将在此播放</span>
+                            </div>
+                        )
+                    ) : mode === 'audio' ? (
+                        audioHistory.length > 0 ? (
+                            <div className="p-6 space-y-4">
+                                {audioHistory.map((item) => (
+                                    <div key={item.id} className="bg-ai-dark border border-ai-border rounded-xl p-4 flex flex-col gap-3 hover:border-ai-accent/30 transition-colors shadow-lg">
+                                        <div className="flex justify-between items-start">
+                                            <div className="flex-1">
+                                                <p className="text-sm text-gray-300 font-medium line-clamp-2">{item.prompt}</p>
+                                                <div className="flex items-center gap-2 mt-2">
+                                                     {item.subType === 'speech' ? (
+                                                         <span className="text-[10px] bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded-full border border-purple-500/20 flex items-center gap-1">
+                                                             <HandDrawnSpeaker className="w-3 h-3" /> {item.voice}
+                                                         </span>
+                                                     ) : (
+                                                         <span className="text-[10px] bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded-full border border-blue-500/20 flex items-center gap-1">
+                                                             <HandDrawnNote className="w-3 h-3" /> 音乐设计
+                                                         </span>
+                                                     )}
+                                                     <span className="text-[10px] text-gray-500">{new Date(item.timestamp).toLocaleTimeString()}</span>
+                                                </div>
+                                            </div>
+                                            {item.audioUrl && (
+                                                <button 
+                                                    onClick={() => downloadFile(item.audioUrl!, `Audio_${item.id}.wav`)}
+                                                    className="text-gray-400 hover:text-white p-2 rounded-lg hover:bg-white/10"
+                                                >
+                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                                                </button>
+                                            )}
+                                        </div>
+                                        
+                                        {/* Audio Player */}
+                                        {item.audioUrl && (
+                                            <div className="mt-2">
+                                                {item.subType === 'music' && <p className="text-[10px] text-gray-500 mb-1">试听小样 (Demo)</p>}
+                                                <audio controls src={item.audioUrl} className="w-full h-8 rounded-lg" />
+                                            </div>
+                                        )}
+
+                                        {/* Music Score Card (Only for music subtype) */}
+                                        {item.subType === 'music' && item.musicScore && (
+                                            <div className="mt-2 p-4 bg-black/30 rounded-lg border border-ai-border/50 font-mono text-xs text-gray-400 leading-relaxed overflow-x-auto">
+                                                {/* Render Markdown-like content simply */}
+                                                <div className="prose prose-invert prose-sm max-w-none">
+                                                    {item.musicScore?.split('\n').map((line, i) => (
+                                                        <p key={i} className="mb-1">{line}</p>
+                                                    ))}
+                                                </div>
+                                                <div className="mt-3 pt-3 border-t border-white/10 flex justify-end">
+                                                    <button 
+                                                        onClick={() => navigator.clipboard.writeText(item.musicScore || "")}
+                                                        className="text-[10px] bg-white/5 hover:bg-white/10 text-gray-300 px-3 py-1.5 rounded transition-colors"
+                                                    >
+                                                        复制完整设定
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                             <div className="flex flex-col items-center justify-center h-full text-gray-600 border border-ai-border/30 border-dashed rounded-xl m-4">
+                                <HandDrawnSpeaker className="h-12 w-12 mb-3 opacity-20" />
+                                <span className="text-sm font-medium">生成的音频或配乐设定将在此显示</span>
+                            </div>
+                        )
+                    ) : mode === 'comic' ? (
+                        comicScript ? (
+                            <div className="p-8 h-full overflow-y-auto">
+                                <div className="prose prose-invert max-w-none mb-8">
+                                    <h3 className="text-2xl font-bold text-gray-100 mb-4 border-b border-gray-700 pb-2 flex items-center gap-3">
+                                        <HandDrawnBookOpen className="w-8 h-8 text-ai-accent" />
+                                        漫剧分镜脚本
+                                    </h3>
+                                    {renderTable(comicScript)}
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="flex flex-col items-center justify-center h-full text-gray-600 border border-ai-border/30 border-dashed rounded-xl m-4">
+                                <HandDrawnBookOpen className="h-12 w-12 mb-3 opacity-20" />
+                                <span className="text-sm font-medium">漫剧分镜脚本将在此生成</span>
                             </div>
                         )
                     ) : (
