@@ -4,13 +4,20 @@
 */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { HandDrawnReel, HandDrawnSettings, HandDrawnCamera, HandDrawnPalette, HandDrawnPen, HandDrawnFilmStrip, HandDrawnSpeaker, HandDrawnBookOpen, HandDrawnNote } from './icons';
+import { HandDrawnReel, HandDrawnSettings, HandDrawnCamera, HandDrawnPalette, HandDrawnPen, HandDrawnFilmStrip, HandDrawnSpeaker, HandDrawnBookOpen, HandDrawnNote, TrashIcon, KeyIcon } from './icons';
 import { Mode, GenerationSettings } from '../types';
 
 interface Template {
   id: string;
   title: string;
   content: string;
+}
+
+interface SavedKey {
+    id: string;
+    alias: string;
+    key: string;
+    timestamp: number;
 }
 
 export const IMAGE_STYLES = [
@@ -82,10 +89,13 @@ export const TemplateSidebar: React.FC<TemplateSidebarProps> = ({
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [templates, setTemplates] = useState<Template[]>(DEFAULT_TEMPLATES);
-  const [hasCustomKey, setHasCustomKey] = useState(false);
-  const [hasCloudKey, setHasCloudKey] = useState(false);
-  const [baseUrl, setBaseUrl] = useState('');
-  const [localApiKey, setLocalApiKey] = useState('');
+  
+  // API Key Management State
+  const [showKeyModal, setShowKeyModal] = useState(false);
+  const [savedKeys, setSavedKeys] = useState<SavedKey[]>([]);
+  const [activeKey, setActiveKey] = useState<string | null>(null);
+  const [inputKey, setInputKey] = useState('');
+  const [inputAlias, setInputAlias] = useState('');
   
   const [camX, setCamX] = useState(0); 
   const [camY, setCamY] = useState(0); 
@@ -97,18 +107,63 @@ export const TemplateSidebar: React.FC<TemplateSidebarProps> = ({
   useEffect(() => {
     const saved = localStorage.getItem('prompt_templates');
     if (saved) { try { setTemplates(JSON.parse(saved)); } catch (e) {} }
-    const existingKey = localStorage.getItem('gemini_api_key');
-    if (existingKey) { setHasCustomKey(true); setLocalApiKey(existingKey); }
-    setBaseUrl(localStorage.getItem('gemini_base_url') || '');
-
-    const checkCloudKey = async () => {
-        const win = window as any;
-        if (win.aistudio?.hasSelectedApiKey) {
-            try { setHasCloudKey(await win.aistudio.hasSelectedApiKey()); } catch (e) {}
-        }
-    };
-    checkCloudKey();
+    
+    // Load Keys
+    try {
+        const storedKeys = JSON.parse(localStorage.getItem('hz_custom_api_keys') || '[]');
+        setSavedKeys(storedKeys);
+        const current = localStorage.getItem('gemini_api_key');
+        setActiveKey(current);
+    } catch(e) {}
   }, []);
+
+  const handleAddKey = () => {
+    if (!inputKey.trim()) return;
+    const newEntry: SavedKey = {
+        id: Date.now().toString(),
+        alias: inputAlias.trim() || `Secret Key ${savedKeys.length + 1}`,
+        key: inputKey.trim(),
+        timestamp: Date.now()
+    };
+    const updated = [...savedKeys, newEntry];
+    setSavedKeys(updated);
+    localStorage.setItem('hz_custom_api_keys', JSON.stringify(updated));
+    setInputKey('');
+    setInputAlias('');
+    
+    // Auto switch if first key
+    if (savedKeys.length === 0) {
+        handleSelectKey(newEntry.key);
+    }
+  };
+
+  const handleSelectKey = (key: string | null) => {
+    if (key) {
+        localStorage.setItem('gemini_api_key', key);
+    } else {
+        localStorage.removeItem('gemini_api_key');
+    }
+    setActiveKey(key);
+  };
+
+  const handleDeleteKey = (id: string) => {
+    const keyToDelete = savedKeys.find(k => k.id === id);
+    const updated = savedKeys.filter(k => k.id !== id);
+    setSavedKeys(updated);
+    localStorage.setItem('hz_custom_api_keys', JSON.stringify(updated));
+    
+    if (keyToDelete?.key === activeKey) {
+        handleSelectKey(null);
+    }
+  };
+
+  const handleSelectCloudKey = () => {
+      onSelectApiKey();
+      handleSelectKey(null); // Clear custom key so env key takes precedence
+      // We assume user successfully linked if they clicked this,
+      // visually we rely on activeKey === null to show Default/Cloud is active.
+      setShowKeyModal(false);
+  };
 
   useEffect(() => {
       const parts = [];
@@ -188,6 +243,7 @@ export const TemplateSidebar: React.FC<TemplateSidebarProps> = ({
   );
 
   return (
+    <>
     <div 
         className={`glass-panel-heavy rounded-[2rem] border border-white/5 flex flex-col transition-all duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] z-30 h-full relative shadow-2xl ${isOpen ? 'w-80' : 'w-20'}`}
     >
@@ -211,8 +267,11 @@ export const TemplateSidebar: React.FC<TemplateSidebarProps> = ({
             
             <div className="flex-1"></div>
             
-            <button onClick={() => setIsOpen(true)} className="w-10 h-10 rounded-full hover:bg-white/5 flex items-center justify-center text-gray-500 transition-colors">
+            <button onClick={() => { setIsOpen(true); setShowKeyModal(true); }} className="w-10 h-10 rounded-full hover:bg-white/5 flex items-center justify-center text-gray-500 hover:text-white transition-colors relative group">
                 <HandDrawnSettings className="h-5 w-5" />
+                {activeKey && (
+                     <div className="absolute top-2 right-2 w-2 h-2 bg-ai-accent rounded-full shadow-[0_0_8px_rgba(139,92,246,0.8)] animate-pulse"></div>
+                )}
             </button>
         </div>
 
@@ -286,25 +345,155 @@ export const TemplateSidebar: React.FC<TemplateSidebarProps> = ({
                                     <button key={r} onClick={() => updateSettings({ aspectRatio: r })} className={`text-[10px] py-1.5 rounded-lg border transition-all ${settings.aspectRatio === r ? 'bg-ai-accent text-white border-transparent shadow' : 'border-transparent text-gray-500 hover:text-gray-300'}`}>{r}</button>
                                 ))}
                             </div>
+                            
+                            <div className="grid grid-cols-3 gap-1 bg-black/20 p-1 rounded-xl">
+                                {['1K', '2K', '4K'].map(s => (
+                                    <button key={s} onClick={() => updateSettings({ imageSize: s as any })} className={`text-[10px] py-1.5 rounded-lg border transition-all ${settings.imageSize === s ? 'bg-ai-accent text-white border-transparent shadow' : 'border-transparent text-gray-500 hover:text-gray-300'}`}>{s}</button>
+                                ))}
+                            </div>
                         </div>
                     )}
 
-                    {/* API Key */}
+                    {/* API Key Trigger */}
                     <div className="pt-4 border-t border-white/5 space-y-3">
                         <button 
-                            onClick={() => { onSelectApiKey(); setHasCloudKey(true); }}
+                            onClick={() => setShowKeyModal(true)}
                             className={`w-full text-[10px] py-2.5 rounded-xl transition-all font-bold flex items-center justify-center gap-2 ${
-                                hasCloudKey 
-                                ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' 
-                                : 'bg-ai-accent/10 text-ai-accent border border-ai-accent/20 hover:bg-ai-accent/20'
+                                activeKey 
+                                ? 'bg-ai-accent/10 text-ai-accent border border-ai-accent/20 hover:bg-ai-accent/20' 
+                                : 'bg-white/5 text-gray-400 border border-white/5 hover:bg-white/10'
                             }`}
                         >
-                            <span>{hasCloudKey ? '已链接 Google Cloud' : '链接 API Key'}</span>
+                             <KeyIcon className="w-4 h-4" />
+                            <span>{activeKey ? '使用自定义 Key' : 'API Key 管理'}</span>
                         </button>
                     </div>
                  </div>
              </div>
         </div>
     </div>
+
+    {/* API Key Manager Modal */}
+    {showKeyModal && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm animate-fade-in p-4" onClick={() => setShowKeyModal(false)}>
+            <div className="bg-ai-card border border-ai-border rounded-2xl w-96 max-w-full shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200" onClick={(e) => e.stopPropagation()}>
+                <div className="p-4 border-b border-white/5 flex justify-between items-center bg-white/5">
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                        <KeyIcon className="w-4 h-4 text-ai-accent" />
+                        API Key 管理
+                    </h3>
+                    <button onClick={() => setShowKeyModal(false)} className="text-gray-500 hover:text-white transition-colors">
+                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
+                </div>
+                
+                <div className="p-4 space-y-6">
+                    {/* Active Status */}
+                    <div className="bg-black/20 rounded-xl p-3 border border-white/5">
+                        <p className="text-[10px] text-gray-500 uppercase tracking-widest font-bold mb-2">当前状态</p>
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                <div className={`w-2 h-2 rounded-full ${activeKey ? 'bg-ai-accent' : 'bg-green-500'}`}></div>
+                                <span className="text-xs font-medium text-gray-200">
+                                    {activeKey ? '正在使用自定义 Key' : '系统默认 / Google Cloud Key'}
+                                </span>
+                            </div>
+                            {activeKey && (
+                                <button onClick={() => handleSelectKey(null)} className="text-[10px] text-gray-400 hover:text-white underline">重置为默认</button>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Key List */}
+                    <div className="space-y-2">
+                        <p className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">已保存的 Keys</p>
+                        <div className="max-h-40 overflow-y-auto space-y-2 pr-1 scrollbar-thin">
+                            {/* Default Option */}
+                            <div 
+                                onClick={() => handleSelectKey(null)}
+                                className={`p-3 rounded-xl border cursor-pointer transition-all flex justify-between items-center group ${
+                                    activeKey === null 
+                                    ? 'bg-green-500/10 border-green-500/30 ring-1 ring-green-500/50' 
+                                    : 'bg-white/5 border-white/5 hover:bg-white/10'
+                                }`}
+                            >
+                                <div>
+                                    <p className={`text-xs font-bold ${activeKey === null ? 'text-green-400' : 'text-gray-300'}`}>系统默认</p>
+                                    <p className="text-[10px] text-gray-500">Google Cloud / Environment</p>
+                                </div>
+                                {activeKey === null && <div className="w-2 h-2 bg-green-500 rounded-full"></div>}
+                            </div>
+
+                            {/* Saved Keys */}
+                            {savedKeys.map((k) => (
+                                <div 
+                                    key={k.id}
+                                    onClick={() => handleSelectKey(k.key)}
+                                    className={`p-3 rounded-xl border cursor-pointer transition-all flex justify-between items-center group ${
+                                        activeKey === k.key 
+                                        ? 'bg-ai-accent/10 border-ai-accent/30 ring-1 ring-ai-accent/50' 
+                                        : 'bg-white/5 border-white/5 hover:bg-white/10'
+                                    }`}
+                                >
+                                    <div className="flex-1 min-w-0 pr-2">
+                                        <p className={`text-xs font-bold truncate ${activeKey === k.key ? 'text-ai-accent' : 'text-gray-300'}`}>{k.alias}</p>
+                                        <p className="text-[10px] text-gray-500 font-mono truncate">••••••••{k.key.slice(-4)}</p>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        {activeKey === k.key && <div className="w-2 h-2 bg-ai-accent rounded-full"></div>}
+                                        <button 
+                                            onClick={(e) => { e.stopPropagation(); handleDeleteKey(k.id); }}
+                                            className="p-1.5 text-gray-600 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                                        >
+                                            <TrashIcon className="w-3.5 h-3.5" />
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Add New */}
+                    <div className="space-y-3 pt-4 border-t border-white/10">
+                         <p className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">添加新 Key</p>
+                         <input 
+                            type="text" 
+                            placeholder="备注名 (例如: Personal Pro)" 
+                            value={inputAlias}
+                            onChange={(e) => setInputAlias(e.target.value)}
+                            className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder-gray-600 focus:border-ai-accent outline-none"
+                         />
+                         <div className="flex gap-2">
+                             <input 
+                                type="password" 
+                                placeholder="sk-..." 
+                                value={inputKey}
+                                onChange={(e) => setInputKey(e.target.value)}
+                                className="flex-1 bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder-gray-600 focus:border-ai-accent outline-none font-mono"
+                             />
+                             <button 
+                                onClick={handleAddKey}
+                                disabled={!inputKey.trim()}
+                                className="bg-white/10 hover:bg-white/20 disabled:opacity-50 text-white px-4 rounded-xl text-xs font-bold transition-colors"
+                             >
+                                 添加
+                             </button>
+                         </div>
+                    </div>
+
+                    <div className="pt-2">
+                        <button 
+                            onClick={handleSelectCloudKey}
+                            className="w-full py-2 border border-blue-500/30 bg-blue-500/5 hover:bg-blue-500/10 text-blue-400 rounded-xl text-xs transition-colors flex items-center justify-center gap-2"
+                        >
+                            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
+                            链接 Google Cloud 项目
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    )}
+    </>
   );
 };
